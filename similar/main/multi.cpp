@@ -295,6 +295,7 @@ namespace dcx {
 
 network_state Network_status;
 playernum_t Bounty_target;
+fix64 Bounty_update_time;
 
 
 per_player_array<msgsend_state> multi_sending_message;
@@ -1915,7 +1916,10 @@ static void multi_do_kill_host(object_array &Objects, const playernum_t pnum, co
 	if (killer > 0)
 		killer = objnum_remote_to_local(killer, buf[count+2]);
 	Netgame.team_vector = buf[5];
+	const auto bounty_target_changed = Bounty_target != buf[6];
 	Bounty_target = buf[6];
+	if (bounty_target_changed)
+		Bounty_update_time = GameTime64 + (3 * F1_0);
 
 	multi_compute_kill(LevelSharedRobotInfoState.Robot_info, Objects.imptridx(killer), Objects.vmptridx(killed));
 }
@@ -3502,6 +3506,7 @@ void multi_prep_level_player(void)
 	Drop_afterburner_blob_flag=0;
 #endif
 	Bounty_target = 0;
+	Bounty_update_time = 3 * F1_0;
 
 	multi_consistency_error(1);
 
@@ -4898,6 +4903,7 @@ void multi_new_bounty_target(playernum_t pnum, const char *const callsign)
 		return;
 	/* Set the target */
 	Bounty_target = pnum;
+	Bounty_update_time = GameTime64 + (3 * F1_0);
 	/* Send a message */
 	const auto ship_color{static_cast<player_ship_color>(pnum)};
 	HUD_init_message(HM_MULTI, "%c%c%s is the new target!", CC_COLOR, BM_XRGB(player_rgb[ship_color].r, player_rgb[ship_color].g, player_rgb[ship_color].b), callsign);
@@ -5207,7 +5213,10 @@ static void multi_do_gmode_update(const multiplayer_rspan<multiplayer_command_t:
 	}
 	if (+(Game_mode & GM_BOUNTY))
 	{
+		const auto bounty_target_changed = Bounty_target != buf[2];
 		Bounty_target = buf[2]; // accept silently - message about change we SHOULD have gotten due to kill computation
+		if (bounty_target_changed)
+			Bounty_update_time = GameTime64 + (3 * F1_0);
 	}
 }
 

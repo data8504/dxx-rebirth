@@ -388,9 +388,11 @@ namespace {
 
 static void render_countdown_gauge(grs_canvas &canvas)
 {
+	if (Endlevel_sequence)
+		return;
 	auto &LevelUniqueControlCenterState = LevelUniqueObjectState.ControlCenterState;
 	int Countdown_seconds_left;
-	if (!Endlevel_sequence && LevelUniqueControlCenterState.Control_center_destroyed && (Countdown_seconds_left = LevelUniqueControlCenterState.Countdown_seconds_left) > -1)
+	if (LevelUniqueControlCenterState.Control_center_destroyed && (Countdown_seconds_left = LevelUniqueControlCenterState.Countdown_seconds_left) > -1)
 	{ // && (Countdown_seconds_left<127))
 #if DXX_BUILD_DESCENT == 2
 		if (!is_D2_OEM && !is_MAC_SHARE && !is_SHAREWARE)    // no countdown on registered only
@@ -408,6 +410,12 @@ static void render_countdown_gauge(grs_canvas &canvas)
 		gr_set_fontcolor(canvas, BM_XRGB(0, 63, 0),-1);
 		auto &game_font = *GAME_FONT;
 		gr_printf(canvas, game_font, 0x8000, (LINE_SPACING(game_font, game_font) * 6) + FSPACY(1), "T-%d s", Countdown_seconds_left);
+	}
+	else if (+(Game_mode & GM_BOUNTY) && Bounty_update_time >= GameTime64 && Bounty_target == Player_num)
+	{
+		gr_set_fontcolor(canvas, BM_XRGB(63, 0, 0), -1);
+		auto &game_font = *GAME_FONT;
+		gr_string(canvas, game_font, 0x8000, (LINE_SPACING(game_font, game_font) * 6) + FSPACY(1), "You are the bounty.");
 	}
 }
 
