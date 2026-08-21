@@ -630,6 +630,7 @@ extern hoard_highest_record hoard_highest_record_stats;
 #endif
 namespace dcx {
 extern playernum_t Bounty_target;
+extern fix64 Bounty_update_time;
 
 extern per_player_array<std::array<bitmap_index, N_PLAYER_SHIP_TEXTURES>> multi_player_textures;
 
