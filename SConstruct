@@ -4937,6 +4937,9 @@ class DXXArchive(DXXCommon):
 
 	RuntimeTest = DXXCommon.RuntimeTest
 	runtime_test_boost_tests = (
+		RuntimeTest('test-homing', (
+			'common/unittest/homing.cpp',
+			)),
 		RuntimeTest('test-enumerate', (
 			'common/unittest/enumerate.cpp',
 			)),
