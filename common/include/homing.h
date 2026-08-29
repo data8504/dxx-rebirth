@@ -11,6 +11,18 @@
 
 namespace dcx {
 
+/* Ordinary robot homers in the original games inherited object slot zero as
+ * their target because newly allocated objects were zero-filled.  In normal
+ * single-player games, that slot is the player.  State the effective rule
+ * explicitly without reintroducing the undefined initialization dependency.
+ */
+template <typename object_index, typename none_type>
+[[nodiscard]]
+constexpr object_index initial_homing_track_goal(const bool multiplayer, const bool fired_by_robot, const object_index local_player, const none_type object_none)
+{
+	return !multiplayer && fired_by_robot ? local_player : static_cast<object_index>(object_none);
+}
+
 struct homing_turn_result
 {
 	vms_vector velocity;

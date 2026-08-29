@@ -843,7 +843,9 @@ imobjptridx_t Laser_create_new(const vms_vector &direction, const vms_vector &po
 
 	// Create orientation matrix so we can look from this pov
 	//	Homing missiles also need an orientation matrix so they know if they can make a turn.
-	if ((weapon_info.homing_flag && (obj->ctype.laser_info.track_goal = object_none, true)) || obj->render_type == render_type::RT_POLYOBJ)
+	if (weapon_info.homing_flag)
+		obj->ctype.laser_info.track_goal = initial_homing_track_goal(+(Game_mode & GM_MULTI), obj->ctype.laser_info.parent_type == object_type::OBJ_ROBOT, get_local_player().objnum, object_none);
+	if (weapon_info.homing_flag || obj->render_type == render_type::RT_POLYOBJ)
 		reconstruct_at(obj->orient, vm_vector_to_matrix_u, direction, parent->orient.uvec);
 
 	if (( parent != Viewer ) && (parent->type != object_type::OBJ_WEAPON))	{
