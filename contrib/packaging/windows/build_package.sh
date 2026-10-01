@@ -31,7 +31,10 @@ build_app() {
 
     # Copy libraries to the respective app directory
     copy_lib() {
-        ldd "$1" | grep -F "${MINGW_PREFIX}/" | sort | cut -d' ' -f3 | while read dll; do cp "${dll}" "${outdir}/${prettyname}/"; done
+        # A codec may import only Windows system DLLs.  No MinGW matches is
+        # valid; preserve ldd failures without grep's no-match exit status.
+        ldd "$1" | awk -v prefix="${MINGW_PREFIX}" 'index($3, prefix "/") == 1 {print $3}' | sort -u |
+            while read -r dll; do cp "${dll}" "${outdir}/${prettyname}/"; done
     }
     copy_lib "${outdir}/${prettyname}/${name}.exe"
 
