@@ -116,7 +116,6 @@
 		1404A2031A92852D00843F81 /* args.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 14F8AB221A2D6320003AA93A /* args.cpp */; };
 		1404A2051A92852D00843F81 /* physfsx.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 14F8AB241A2D6320003AA93A /* physfsx.cpp */; };
 		1404A2061A92854F00843F81 /* messagebox.mm in Sources */ = {isa = PBXBuildFile; fileRef = 14F8A93D1A2D6320003AA93A /* messagebox.mm */; };
-		1404A2071A92856F00843F81 /* SDLMain.m in Sources */ = {isa = PBXBuildFile; fileRef = 14F8A93F1A2D6320003AA93A /* SDLMain.m */; };
 		1404A2081A92859600843F81 /* 2dsline.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 14F8A91B1A2D6320003AA93A /* 2dsline.cpp */; };
 		1404A2091A92859600843F81 /* bitblt.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 14F8A91C1A2D6320003AA93A /* bitblt.cpp */; };
 		1404A20A1A92859600843F81 /* bitmap.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 14F8A91D1A2D6320003AA93A /* bitmap.cpp */; };
@@ -140,7 +139,6 @@
 		1404A21C1A92859600843F81 /* setup.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 14F8A9341A2D6320003AA93A /* setup.cpp */; };
 		1404A21D1A92859600843F81 /* digi_mixer_music.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 14F8A9431A2D6320003AA93A /* digi_mixer_music.cpp */; };
 		1404A21E1A92859600843F81 /* joy.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 14F8A9441A2D6320003AA93A /* joy.cpp */; };
-		1404A21F1A92859600843F81 /* rbaudio.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 14F8A9451A2D6320003AA93A /* rbaudio.cpp */; };
 		1404A2201A92859600843F81 /* window.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 14F8A9461A2D6320003AA93A /* window.cpp */; };
 		1404A2211A92859600843F81 /* messagebox.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 14F8A9481A2D6320003AA93A /* messagebox.cpp */; };
 		1404A2221A92859600843F81 /* func.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 14F8A95A1A2D6320003AA93A /* func.cpp */; };
@@ -253,17 +251,13 @@
 		14F8A9361A2D6320003AA93A /* conf.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = conf.h; sourceTree = "<group>"; };
 		14F8A9371A2D6320003AA93A /* descent.r */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.rez; path = descent.r; sourceTree = "<group>"; };
 		14F8A9381A2D6320003AA93A /* messagebox.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = messagebox.c; sourceTree = "<group>"; };
-		14F8A9391A2D6320003AA93A /* SDL_main.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = SDL_main.c; sourceTree = "<group>"; };
 		14F8A93B1A2D6320003AA93A /* d1x-rebirth.icns */ = {isa = PBXFileReference; lastKnownFileType = image.icns; path = "d1x-rebirth.icns"; sourceTree = "<group>"; };
 		14F8A93C1A2D6320003AA93A /* d2x-rebirth.icns */ = {isa = PBXFileReference; lastKnownFileType = image.icns; path = "d2x-rebirth.icns"; sourceTree = "<group>"; };
 		14F8A93D1A2D6320003AA93A /* messagebox.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; path = messagebox.mm; sourceTree = "<group>"; };
-		14F8A93E1A2D6320003AA93A /* SDLMain.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = SDLMain.h; sourceTree = "<group>"; };
-		14F8A93F1A2D6320003AA93A /* SDLMain.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = SDLMain.m; sourceTree = "<group>"; };
 		14F8A9401A2D6320003AA93A /* tool_bundle.py */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.script.python; path = tool_bundle.py; sourceTree = "<group>"; };
 		14F8A9411A2D6320003AA93A /* tool_bundle.pyc */ = {isa = PBXFileReference; lastKnownFileType = file; path = tool_bundle.pyc; sourceTree = "<group>"; };
 		14F8A9431A2D6320003AA93A /* digi_mixer_music.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = digi_mixer_music.cpp; sourceTree = "<group>"; };
 		14F8A9441A2D6320003AA93A /* joy.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = joy.cpp; sourceTree = "<group>"; };
-		14F8A9451A2D6320003AA93A /* rbaudio.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = rbaudio.cpp; sourceTree = "<group>"; };
 		14F8A9461A2D6320003AA93A /* window.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = window.cpp; sourceTree = "<group>"; };
 		14F8A9481A2D6320003AA93A /* messagebox.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = messagebox.cpp; sourceTree = "<group>"; };
 		14F8A94B1A2D6320003AA93A /* curve.pad */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = curve.pad; sourceTree = "<group>"; };
@@ -819,8 +813,6 @@
 				14F8A93B1A2D6320003AA93A /* d1x-rebirth.icns */,
 				14F8A93C1A2D6320003AA93A /* d2x-rebirth.icns */,
 				14F8A93D1A2D6320003AA93A /* messagebox.mm */,
-				14F8A93E1A2D6320003AA93A /* SDLMain.h */,
-				14F8A93F1A2D6320003AA93A /* SDLMain.m */,
 				14F8A9401A2D6320003AA93A /* tool_bundle.py */,
 			);
 			path = cocoa;
@@ -834,7 +826,6 @@
 				14F8A9441A2D6320003AA93A /* joy.cpp */,
 				EB46A1DB1C6753B400C2C377 /* key.cpp */,
 				EB46A1DC1C6753B400C2C377 /* mouse.cpp */,
-				14F8A9451A2D6320003AA93A /* rbaudio.cpp */,
 				EB46A1DD1C6753B400C2C377 /* timer.cpp */,
 				14F8A9461A2D6320003AA93A /* window.cpp */,
 			);
@@ -1787,7 +1778,6 @@
 				1404A21C1A92859600843F81 /* setup.cpp in Sources */,
 				1404A21D1A92859600843F81 /* digi_mixer_music.cpp in Sources */,
 				1404A21E1A92859600843F81 /* joy.cpp in Sources */,
-				1404A21F1A92859600843F81 /* rbaudio.cpp in Sources */,
 				1404A2201A92859600843F81 /* window.cpp in Sources */,
 				1404A2211A92859600843F81 /* messagebox.cpp in Sources */,
 				1404A2221A92859600843F81 /* func.cpp in Sources */,
@@ -1833,7 +1823,6 @@
 				1404A24C1A92859600843F81 /* gr.cpp in Sources */,
 				1404A24D1A92859600843F81 /* init.cpp in Sources */,
 				1404A24E1A92859600843F81 /* jukebox.cpp in Sources */,
-				1404A2071A92856F00843F81 /* SDLMain.m in Sources */,
 				1404A2061A92854F00843F81 /* messagebox.mm in Sources */,
 				1404A1971A92852C00843F81 /* bmread.cpp in Sources */,
 				1404A1981A92852C00843F81 /* escort.cpp in Sources */,
@@ -1961,8 +1950,8 @@
 				HEADER_SEARCH_PATHS = (
 					"$(inherited)",
 					/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/include,
-					/Library/Frameworks/SDL.framework/Headers,
-					/Library/Frameworks/SDL_mixer.framework/Headers,
+					/Library/Frameworks/SDL3.framework/Headers,
+					/Library/Frameworks/SDL3_mixer.framework/Headers,
 					/usr/local/include,
 				);
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -1976,8 +1965,8 @@
 				HEADER_SEARCH_PATHS = (
 					"$(inherited)",
 					/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/include,
-					/Library/Frameworks/SDL.framework/Headers,
-					/Library/Frameworks/SDL_mixer.framework/Headers,
+					/Library/Frameworks/SDL3.framework/Headers,
+					/Library/Frameworks/SDL3_mixer.framework/Headers,
 					/usr/local/include,
 				);
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -1991,8 +1980,8 @@
 				HEADER_SEARCH_PATHS = (
 					"$(inherited)",
 					/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/include,
-					/Library/Frameworks/SDL.framework/Headers,
-					/Library/Frameworks/SDL_mixer.framework/Headers,
+					/Library/Frameworks/SDL3.framework/Headers,
+					/Library/Frameworks/SDL3_mixer.framework/Headers,
 					/usr/local/include,
 				);
 				PRODUCT_NAME = "$(TARGET_NAME)";

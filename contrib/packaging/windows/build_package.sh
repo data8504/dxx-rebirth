@@ -35,10 +35,25 @@ build_app() {
     }
     copy_lib "${outdir}/${prettyname}/${name}.exe"
 
-    # ogg support is dynamically loaded, so manually copy this (and its libs) too
-    # TODO FLAC support? Missing libflac-8.dll but unable to find mingw64 package
-    cp "/mingw64/bin/libvorbisfile-3.dll" "${outdir}/${prettyname}/"
-    copy_lib "/mingw64/bin/libvorbisfile-3.dll"
+    # SDL3_mixer loads these MSYS2 codec DLLs dynamically, so they do not
+    # appear in the executable's ldd output.  Include each codec and its
+    # transitive imports to retain external music support in the package.
+    local codec
+    for codec in \
+        libFLAC.dll \
+        libfluidsynth-3.dll \
+        libgme.dll \
+        libmpg123-0.dll \
+        libopusfile-0.dll \
+        libvorbisfile-3.dll \
+        libwavpack-1.dll \
+        libxmp.dll
+    do
+        cp "/mingw64/bin/${codec}" "${outdir}/${prettyname}/"
+        copy_lib "/mingw64/bin/${codec}"
+    done
+    # The only SDL3_image loader used by the game is PCX, which is built in.
+    # Its dynamically loaded PNG/JPEG/TIFF/etc. codecs are not required.
 
     # Copy other resources to the respective app directory
     cp --link "${name}/"*.ini "${outdir}/${prettyname}/"

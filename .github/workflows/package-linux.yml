@@ -25,13 +25,20 @@ jobs:
           gcc-15 g++-15
           python3
           scons
-          libsdl2-dev
-          libsdl2-image-dev
-          libsdl2-mixer-dev
+          libsdl3-dev
+          libsdl3-image-dev
+          cmake ninja-build curl
+          libflac-dev libvorbis-dev libopusfile-dev libmpg123-dev libxmp-dev libfluidsynth-dev libwavpack-dev
           libphysfs-dev
           libpng-dev
           libgl-dev
           libglu1-mesa-dev
+
+      - name: Build SDL3_mixer
+        run: |
+          contrib/ci/build-sdl3-mixer.sh "$RUNNER_TEMP/sdl3" "$RUNNER_TEMP/sdl3-build"
+          printf 'PKG_CONFIG_PATH=%s/lib/pkgconfig\n' "$RUNNER_TEMP/sdl3" >> "$GITHUB_ENV"
+          printf 'LD_LIBRARY_PATH=%s/lib\n' "$RUNNER_TEMP/sdl3" >> "$GITHUB_ENV"
 
       - name: Collect architecture
         id: architecture
@@ -66,7 +73,6 @@ jobs:
           "-j$nproc"
           -k
           CXX=g++-15
-          sdl2=1
           "CXXFLAGS=-flto=$(( $nproc + 1 / 2 ))"
 
       - name: Upload SConf log
@@ -75,6 +81,9 @@ jobs:
         with:
           name: "SConf-Linux-${{ steps.architecture.outputs.uname_m }}"
           path: 'build/config.log'
+
+      - name: Run native regression tests
+        run: scons -j"$(nproc)" CXX=g++-15 register_runtime_test_link_targets=1 check
 
       - name: Install AppImage Requirements
         run: sudo apt-get install -y libfuse2 wget curl
@@ -129,7 +138,6 @@ jobs:
           "-j$nproc"
           -k
           CXX=g++-15
-          sdl2=1
           "CXXFLAGS=-flto=$(( $nproc + 1 / 2 ))"
           check_header_includes=1
           build/{common,d1x-rebirth,d2x-rebirth}/check_header_includes
