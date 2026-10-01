@@ -320,20 +320,21 @@ static void *dll_GetSymbol(void *dllhandle,const char *symname)
 }
 #endif
 #ifdef macintosh
-#include <SDL.h>
+#include <SDL3/SDL.h>
 static inline void *dll_LoadModule(const char *name)
 {
-	return SDL_GL_LoadLibrary(name) ? NULL : (void *) -1;	// return pointer is not dereferenced
+	return SDL_GL_LoadLibrary(name) ? (void *) -1 : NULL;	// return pointer is not dereferenced
 }
 static inline void dll_UnloadModule(void *hdl)
 {
-	hdl = hdl;	// SDL_GL_UnloadLibrary not exported by SDL
+	(void)hdl;
+	SDL_GL_UnloadLibrary();
 }
 static void *dll_GetSymbol(void *dllhandle,const char *symname)
 {
 	if(!dllhandle)
 		return NULL;
-	return SDL_GL_GetProcAddress(symname);
+	return reinterpret_cast<void *>(SDL_GL_GetProcAddress(symname));
 }
 #endif
 
