@@ -43,7 +43,8 @@ char copyright[] = "DESCENT II  COPYRIGHT (C) 1994-1996 PARALLAX SOFTWARE CORPOR
 #include <stdlib.h>
 #include <string.h>
 #include <limits.h>
-#include <SDL.h>
+#include <SDL3/SDL.h>
+#include <SDL3/SDL_main.h>
 #if DXX_USE_SCREENSHOT_FORMAT_PNG
 #include <png.h>
 #endif
@@ -109,10 +110,10 @@ char copyright[] = "DESCENT II  COPYRIGHT (C) 1994-1996 PARALLAX SOFTWARE CORPOR
 #include "dsx-ns.h"
 
 #if DXX_USE_SDLIMAGE
-#include <SDL_image.h>
+#include <SDL3_image/SDL_image.h>
 #endif
 #if DXX_USE_SDLMIXER
-#include <SDL_mixer.h>
+#include <SDL3_mixer/SDL_mixer.h>
 #endif
 
 namespace dsx {
@@ -548,27 +549,19 @@ static int main(int argc, char *argv[])
 			con_printf(CON_VERBOSE, "D" DXX_NAME_NUMBER "X-Rebirth built with PhysFS %u.%u.%u; loaded with PhysFS %u.%u.%u", vc.major, vc.minor, vc.patch, vl.major, vl.minor, vl.patch);
 		}
 		{
-			SDL_version vc;
-			SDL_VERSION(&vc);
-			SDL_version vlv;
-			const auto vl = &vlv;
-			SDL_GetVersion(vl);
-			con_printf(CON_VERBOSE, "D" DXX_NAME_NUMBER "X-Rebirth built with libSDL %u.%u.%u; loaded with libSDL %u.%u.%u", vc.major, vc.minor, vc.patch, vl->major, vl->minor, vl->patch);
+			const auto vc = SDL_VERSION, vl = SDL_GetVersion();
+			con_printf(CON_VERBOSE, "D" DXX_NAME_NUMBER "X-Rebirth built with libSDL %d.%d.%d; loaded with libSDL %d.%d.%d", SDL_VERSIONNUM_MAJOR(vc), SDL_VERSIONNUM_MINOR(vc), SDL_VERSIONNUM_MICRO(vc), SDL_VERSIONNUM_MAJOR(vl), SDL_VERSIONNUM_MINOR(vl), SDL_VERSIONNUM_MICRO(vl));
 		}
 #if DXX_USE_SDLIMAGE
 		{
-			SDL_version vc;
-			SDL_IMAGE_VERSION(&vc);
-			const auto vl = IMG_Linked_Version();
-			con_printf(CON_VERBOSE, "D" DXX_NAME_NUMBER "X-Rebirth built with SDL_image %u.%u.%u; loaded with SDL_image %u.%u.%u", vc.major, vc.minor, vc.patch, vl->major, vl->minor, vl->patch);
+			const auto vc = SDL_IMAGE_VERSION, vl = IMG_Version();
+			con_printf(CON_VERBOSE, "D" DXX_NAME_NUMBER "X-Rebirth built with SDL_image %d.%d.%d; loaded with SDL_image %d.%d.%d", SDL_VERSIONNUM_MAJOR(vc), SDL_VERSIONNUM_MINOR(vc), SDL_VERSIONNUM_MICRO(vc), SDL_VERSIONNUM_MAJOR(vl), SDL_VERSIONNUM_MINOR(vl), SDL_VERSIONNUM_MICRO(vl));
 		}
 #endif
 #if DXX_USE_SDLMIXER
 		{
-			SDL_version vc;
-			SDL_MIXER_VERSION(&vc);
-			const auto vl = Mix_Linked_Version();
-			con_printf(CON_VERBOSE, "D" DXX_NAME_NUMBER "X-Rebirth built with SDL_mixer %u.%u.%u; loaded with SDL_mixer %u.%u.%u", vc.major, vc.minor, vc.patch, vl->major, vl->minor, vl->patch);
+			const auto vc = SDL_MIXER_VERSION, vl = MIX_Version();
+			con_printf(CON_VERBOSE, "D" DXX_NAME_NUMBER "X-Rebirth built with SDL_mixer %d.%d.%d; loaded with SDL_mixer %d.%d.%d", SDL_VERSIONNUM_MAJOR(vc), SDL_VERSIONNUM_MINOR(vc), SDL_VERSIONNUM_MICRO(vc), SDL_VERSIONNUM_MAJOR(vl), SDL_VERSIONNUM_MINOR(vl), SDL_VERSIONNUM_MICRO(vl));
 		}
 #endif
 #if DXX_USE_SCREENSHOT_FORMAT_PNG

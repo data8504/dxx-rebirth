@@ -31,7 +31,7 @@ typedef unsigned int uint;
 #endif
 
 #if defined(_WIN32) || defined(__sun__) // platforms missing (u_)int??_t
-# include <SDL_types.h>
+# include <SDL3/SDL_stdinc.h>
 #elif defined(macintosh) // misses (u_)int??_t and does not like SDL_types.h
 # include <MacTypes.h>
  typedef SInt16 int16_t;
@@ -83,4 +83,3 @@ defined(__LITTLE_ENDIAN__)	// from physfs_internal.h
 #endif
 
 #endif //_TYPES_H
-
