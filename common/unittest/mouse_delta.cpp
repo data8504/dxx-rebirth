@@ -77,3 +77,32 @@ BOOST_AUTO_TEST_CASE(opposing_events_produce_net_motion)
 	const std::array<int64_t, 3> expected{{2, 5, 0}};
 	BOOST_TEST(consume(state) == expected, boost::test_tools::per_element());
 }
+
+BOOST_AUTO_TEST_CASE(subpixel_motion_retains_fractional_remainder)
+{
+	dcx::mouse_motion_accumulator motion;
+	BOOST_TEST(motion.update(0.25f) == 0);
+	BOOST_TEST(motion.update(0.5f) == 0);
+	BOOST_TEST(motion.update(0.5f) == 1);
+	BOOST_TEST(motion.update(0.75f) == 1);
+}
+
+BOOST_AUTO_TEST_CASE(subpixel_motion_handles_reversal)
+{
+	dcx::mouse_motion_accumulator motion;
+	BOOST_TEST(motion.update(0.75f) == 0);
+	BOOST_TEST(motion.update(-0.5f) == 0);
+	BOOST_TEST(motion.update(-1.5f) == -1);
+	BOOST_TEST(motion.update(-0.75f) == -1);
+}
+
+BOOST_AUTO_TEST_CASE(subpixel_motion_is_independent_of_partitioning)
+{
+	dcx::mouse_motion_accumulator single, partitioned;
+	const auto expected = single.update(-3.5f);
+	int actual{};
+	for (unsigned i = 0; i != 14; ++i)
+		actual += partitioned.update(-0.25f);
+	BOOST_TEST(actual == expected);
+	BOOST_TEST(partitioned.update(-0.5f) == single.update(-0.5f));
+}

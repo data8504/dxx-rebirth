@@ -12,7 +12,7 @@
  */
 
 #include <ranges>
-#include <SDL.h>
+#include <SDL3/SDL.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include "event.h"
@@ -34,7 +34,6 @@ namespace {
 
 struct event_poll_state
 {
-	uint8_t clean_uniframe{1};
 	const window *const front_window = window_get_front();
 	window_event_result highest_result = window_event_result::ignored;
 	void process_event_batch(std::ranges::subrange<const SDL_Event *>);
@@ -46,9 +45,9 @@ extern SDL_Window *g_pRebirthSDLMainWindow;
 
 static void windowevent_handler(const SDL_WindowEvent &windowevent)
 {
-	switch (windowevent.event)
+	switch (windowevent.type)
 	{
-		case SDL_WINDOWEVENT_SIZE_CHANGED:
+		case SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED:
 			{
 				const d_window_size_event e{windowevent.data1, windowevent.data2};
 				event_send(e);
@@ -86,7 +85,7 @@ window_event_result event_poll()
 		std::array<SDL_Event, 128> events;
 
 		SDL_PumpEvents();
-		const auto peep = SDL_PeepEvents(events.data(), events.size(), SDL_GETEVENT, SDL_FIRSTEVENT, SDL_LASTEVENT);
+		const auto peep = SDL_PeepEvents(events.data(), events.size(), SDL_GETEVENT, SDL_EVENT_FIRST, SDL_EVENT_LAST);
 		if (peep <= 0)
 			break;
 		state.process_event_batch(unchecked_partial_range(events, static_cast<unsigned>(peep)));
@@ -116,61 +115,68 @@ void event_poll_state::process_event_batch(const std::ranges::subrange<const SDL
 	{
 		window_event_result result;
 		switch(event.type) {
-			case SDL_WINDOWEVENT:
+			case SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED:
 				windowevent_handler(event.window);
 				continue;
-			case SDL_KEYDOWN:
-			case SDL_KEYUP:
-				if (clean_uniframe)
-				{
-					clean_uniframe=0;
-					unicode_frame_buffer = {};
-				}
+			case SDL_EVENT_TEXT_INPUT:
+				result = key_text_handler(event.text.text);
+				break;
+			case SDL_EVENT_KEY_DOWN:
+			case SDL_EVENT_KEY_UP:
 				result = key_handler(&event.key);
 				break;
-			case SDL_MOUSEBUTTONDOWN:
-			case SDL_MOUSEBUTTONUP:
+			case SDL_EVENT_MOUSE_BUTTON_DOWN:
+			case SDL_EVENT_MOUSE_BUTTON_UP:
 				if (CGameArg.CtlNoMouse)
 					continue;
 				result = mouse_button_handler(&event.button);
 				break;
-			case SDL_MOUSEMOTION:
+			case SDL_EVENT_MOUSE_MOTION:
 				if (CGameArg.CtlNoMouse)
 					continue;
 				result = mouse_motion_handler(&event.motion);
 				break;
+			case SDL_EVENT_MOUSE_WHEEL:
+				if (CGameArg.CtlNoMouse)
+					continue;
+				result = mouse_wheel_handler(&event.wheel);
+				break;
 #if DXX_MAX_JOYSTICKS
 #if DXX_MAX_BUTTONS_PER_JOYSTICK
-			case SDL_CONTROLLERBUTTONDOWN:
-			case SDL_CONTROLLERBUTTONUP:
+			case SDL_EVENT_GAMEPAD_BUTTON_DOWN:
+			case SDL_EVENT_GAMEPAD_BUTTON_UP:
 				if (CGameArg.CtlNoJoystick)
 					continue;
-				result = gc_button_handler(&event.cbutton);
+				result = gc_button_handler(&event.gbutton);
 				break;
 #endif
 #if DXX_MAX_AXES_PER_JOYSTICK
-			case SDL_CONTROLLERAXISMOTION:
+			case SDL_EVENT_GAMEPAD_AXIS_MOTION:
 				if (CGameArg.CtlNoJoystick)
 					continue;
 #if (DXX_MAX_BUTTONS_PER_JOYSTICK || DXX_MAX_HATS_PER_JOYSTICK)
-				highest_result = std::max(gc_axisbutton_handler(&event.caxis), highest_result);
+				highest_result = std::max(gc_axisbutton_handler(&event.gaxis), highest_result);
 #endif
-				result = gc_axis_handler(&event.caxis);
+				result = gc_axis_handler(&event.gaxis);
 				break;
 #endif
-			case SDL_CONTROLLERDEVICEADDED:
-				result = gc_device_added(&event.cdevice);
+			case SDL_EVENT_GAMEPAD_ADDED:
+				if (CGameArg.CtlNoJoystick)
+					continue;
+				result = gc_device_added(&event.gdevice);
 				break;
-			case SDL_CONTROLLERDEVICEREMOVED:
-				result = gc_device_removed(&event.cdevice);
+			case SDL_EVENT_GAMEPAD_REMOVED:
+				if (CGameArg.CtlNoJoystick)
+					continue;
+				result = gc_device_removed(&event.gdevice);
 				break;
-			case SDL_JOYBUTTONDOWN:
-			case SDL_JOYBUTTONUP:
+			case SDL_EVENT_JOYSTICK_BUTTON_DOWN:
+			case SDL_EVENT_JOYSTICK_BUTTON_UP:
 				if (CGameArg.CtlNoJoystick)
 					continue;
 				result = joy_button_handler(&event.jbutton);
 				break;
-			case SDL_JOYAXISMOTION:
+			case SDL_EVENT_JOYSTICK_AXIS_MOTION:
 				if (CGameArg.CtlNoJoystick)
 					continue;
 #if DXX_MAX_BUTTONS_PER_JOYSTICK || DXX_MAX_HATS_PER_JOYSTICK
@@ -178,15 +184,13 @@ void event_poll_state::process_event_batch(const std::ranges::subrange<const SDL
 #endif
 				result = joy_axis_handler(&event.jaxis);
 				break;
-			case SDL_JOYHATMOTION:
+			case SDL_EVENT_JOYSTICK_HAT_MOTION:
 				if (CGameArg.CtlNoJoystick)
 					continue;
 				result = joy_hat_handler(&event.jhat);
 				break;
-			case SDL_JOYBALLMOTION:
-				continue;
 #endif
-			case SDL_QUIT: {
+			case SDL_EVENT_QUIT: {
 				result = call_default_handler(d_event{event_type::quit});
 				break;
 			}
@@ -203,7 +207,7 @@ void event_flush()
 	for (;;)
 	{
 		SDL_PumpEvents();
-		const auto peep = SDL_PeepEvents(events.data(), events.size(), SDL_GETEVENT, SDL_FIRSTEVENT, SDL_LASTEVENT);
+		const auto peep = SDL_PeepEvents(events.data(), events.size(), SDL_GETEVENT, SDL_EVENT_FIRST, SDL_EVENT_LAST);
 		if (peep != events.size())
 			break;
 	}
@@ -289,8 +293,9 @@ template <bool activate_focus>
 static void event_change_focus()
 {
 	const auto enable_grab = activate_focus && CGameCfg.Grabinput && likely(!CGameArg.DbgForbidConsoleGrab);
-	SDL_SetWindowGrab(g_pRebirthSDLMainWindow, enable_grab ? SDL_TRUE : SDL_FALSE);
-	SDL_SetRelativeMouseMode(enable_grab ? SDL_TRUE : SDL_FALSE);
+	SDL_SetWindowMouseGrab(g_pRebirthSDLMainWindow, enable_grab);
+	SDL_SetWindowKeyboardGrab(g_pRebirthSDLMainWindow, enable_grab);
+	SDL_SetWindowRelativeMouseMode(g_pRebirthSDLMainWindow, enable_grab);
 	if (activate_focus)
 		mouse_disable_cursor();
 	else

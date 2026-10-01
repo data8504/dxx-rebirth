@@ -16,12 +16,13 @@
 #include <tuple>
 #include "pstypes.h"
 #include "maths.h"
-#include <SDL_version.h>
+#include <SDL3/SDL_version.h>
 #include <cassert>
 #include "event.h"
 
 struct SDL_MouseButtonEvent;
 struct SDL_MouseMotionEvent;
+struct SDL_MouseWheelEvent;
 
 namespace dcx {
 
@@ -67,6 +68,7 @@ void mouse_enable_cursor();
 void mouse_disable_cursor();
 window_event_result mouse_button_handler(const SDL_MouseButtonEvent *mbe);
 window_event_result mouse_motion_handler(const SDL_MouseMotionEvent *mme);
+window_event_result mouse_wheel_handler(const SDL_MouseWheelEvent *mwe);
 void mouse_cursor_autohide();
 
 class d_event_mousebutton : public d_event
@@ -79,14 +81,12 @@ public:
 class d_event_mouse_moved : public d_event
 {
 public:
-#define SDL_MOUSE_MOVE_INT_TYPE	Sint32
-	const SDL_MOUSE_MOVE_INT_TYPE dx, dy;
+	const int32_t dx, dy;
 	const int16_t dz;
-	constexpr d_event_mouse_moved(const event_type t, const SDL_MOUSE_MOVE_INT_TYPE x, const SDL_MOUSE_MOVE_INT_TYPE y, const int16_t z) :
+	constexpr d_event_mouse_moved(const event_type t, const int32_t x, const int32_t y, const int16_t z) :
 		d_event{t}, dx{x}, dy{y}, dz{z}
 	{
 	}
-#undef SDL_MOUSE_MOVE_INT_TYPE
 };
 
 static inline mbtn event_mouse_get_button(const d_event &event)

@@ -11,7 +11,7 @@
  */
 
 #include <string.h>
-#include <SDL.h>
+#include <SDL3/SDL.h>
 
 #include "maths.h"
 #include "timer.h"
@@ -23,8 +23,11 @@
 #include "gr.h"
 
 #include "d_underlying_value.h"
+#include "mouse_delta.h"
 
 namespace dcx {
+
+extern SDL_Window *g_pRebirthSDLMainWindow;
 
 namespace {
 
@@ -32,6 +35,7 @@ struct flushable_mouseinfo
 {
 	int    delta_x, delta_y, delta_z;
 	int z;
+	mouse_motion_accumulator motion_x, motion_y, wheel_y;
 };
 
 struct mouseinfo : flushable_mouseinfo
@@ -43,6 +47,21 @@ struct mouseinfo : flushable_mouseinfo
 };
 
 static mouseinfo Mouse;
+
+static void update_absolute_position(const float x, const float y)
+{
+	int w{}, h{};
+	if (grd_curscreen && SDL_GetWindowSize(g_pRebirthSDLMainWindow, &w, &h) && w > 0 && h > 0)
+	{
+		Mouse.x = x * grd_curscreen->get_screen_width() / w;
+		Mouse.y = y * grd_curscreen->get_screen_height() / h;
+	}
+	else
+	{
+		Mouse.x = x;
+		Mouse.y = y;
+	}
+}
 
 }
 
@@ -58,7 +77,7 @@ void mouse_init(void)
 
 void mouse_close(void)
 {
-	SDL_ShowCursor(SDL_ENABLE);
+	SDL_ShowCursor();
 }
 
 namespace {
@@ -113,6 +132,9 @@ window_event_result mouse_button_handler(const SDL_MouseButtonEvent *const mbe)
 		return window_event_result::ignored;
 	// to bad, SDL buttons use a different mapping as descent expects,
 	// this is at least true and tested for the first three buttons 
+	/* Preserve existing side-button binding numbers.  Wheel events are
+	 * delivered separately by SDL3, using the same legacy z bindings.
+	 */
 	static constexpr std::array<mbtn, 17> button_remap{{
 		mbtn::left,
 		mbtn::middle,
@@ -137,11 +159,11 @@ window_event_result mouse_button_handler(const SDL_MouseButtonEvent *const mbe)
 		return window_event_result::ignored;
 
 	const auto now = timer_query();
+	update_absolute_position(mbe->x, mbe->y);
 	const auto button = button_remap[button_idx];
-	const auto mbe_state = mbe->state;
 	Mouse.cursor_time = now;
 
-	const auto pressed = mbe_state != SDL_RELEASED;
+	const auto pressed = mbe->down;
 	if (pressed) {
 		highest_result = maybe_send_z_move(button);
 	}
@@ -158,22 +180,43 @@ window_event_result mouse_button_handler(const SDL_MouseButtonEvent *const mbe)
 window_event_result mouse_motion_handler(const SDL_MouseMotionEvent *const mme)
 {
 	Mouse.cursor_time = timer_query();
-	Mouse.x += mme->xrel;
-	Mouse.y += mme->yrel;
+	update_absolute_position(mme->x, mme->y);
+	const auto dx = Mouse.motion_x.update(mme->xrel);
+	const auto dy = Mouse.motion_y.update(mme->yrel);
 	
 	// z handled in mouse_button_handler
-	const d_event_mouse_moved event{event_type::mouse_moved, mme->xrel, mme->yrel, 0};
+	const d_event_mouse_moved event{event_type::mouse_moved, dx, dy, 0};
 	
 	//con_printf(CON_DEBUG, "Sending event event_type::mouse_moved, relative motion %d,%d,%d",
 	//		   event.dx, event.dy, event.dz);
 	return event_send(event);
 }
 
+window_event_result mouse_wheel_handler(const SDL_MouseWheelEvent *const mwe)
+{
+	const auto direction = mwe->direction == SDL_MOUSEWHEEL_FLIPPED ? -1.f : 1.f;
+	const auto motion = Mouse.wheel_y.update(mwe->y * direction);
+	const auto button = motion > 0 ? mbtn::z_up : mbtn::z_down;
+	window_event_result result{window_event_result::ignored};
+	Mouse.cursor_time = timer_query();
+	for (auto remaining = std::abs(motion); remaining; --remaining)
+	{
+		result = std::max(maybe_send_z_move(button), result);
+		result = std::max(send_singleclick(true, button), result);
+		result = std::max(send_singleclick(false, button), result);
+		if (result == window_event_result::deleted)
+			break;
+	}
+	return result;
+}
+
 void mouse_flush()	// clears all mice events...
 {
 //	event_poll();
 	static_cast<flushable_mouseinfo &>(Mouse) = {};
-	SDL_GetMouseState(&Mouse.x, &Mouse.y); // necessary because polling only gives us the delta.
+	float x, y;
+	SDL_GetMouseState(&x, &y);
+	update_absolute_position(x, y);
 }
 
 //========================================================================
@@ -194,23 +237,6 @@ window_event_result mouse_in_window(window *wind)
 			(static_cast<unsigned>(Mouse.y) - canv.cv_bitmap.bm_y <= canv.cv_bitmap.bm_h) ? window_event_result::handled : window_event_result::ignored;
 }
 
-#if 0
-std::tuple<int, int, int> mouse_get_delta()
-{
-	const int dz{Mouse.delta_z};
-	int dx{}, dy{};
-	Mouse.delta_x = 0;
-	Mouse.delta_y = 0;
-	Mouse.delta_z = 0;
-	SDL_GetRelativeMouseState(&dx, &dy);
-	return {
-		dx,
-		dy,
-		dz,
-	};
-}
-#endif
-
 namespace {
 
 template <bool noactivate>
@@ -218,7 +244,7 @@ static void mouse_change_cursor()
 {
 	Mouse.cursor_enabled = (!noactivate && !CGameArg.CtlNoMouse && !CGameArg.CtlNoCursor);
 	if (!Mouse.cursor_enabled)
-		SDL_ShowCursor(SDL_DISABLE);
+		SDL_HideCursor();
 }
 
 }
@@ -238,8 +264,8 @@ void mouse_cursor_autohide()
 {
 	static fix64 hidden_time = 0;
 
-	const auto is_showing = SDL_ShowCursor(SDL_QUERY);
-	int result;
+	const auto is_showing = SDL_CursorVisible();
+	bool result;
 	if (Mouse.cursor_enabled)
 	{
 		const auto now = timer_query();
@@ -250,22 +276,25 @@ void mouse_cursor_autohide()
 			if (recent_cursor_time)
 				return;
 			hidden_time = now;
-			result = SDL_DISABLE;
+			result = false;
 		}
 		else
 		{
 			if (!(recent_cursor_time && hidden_time + (F1_0/2) < now))
 				return;
-			result = SDL_ENABLE;
+			result = true;
 		}
 	}
 	else
 	{
 		if (!is_showing)
 			return;
-		result = SDL_DISABLE;
+		result = false;
 	}
-	SDL_ShowCursor(result);
+	if (result)
+		SDL_ShowCursor();
+	else
+		SDL_HideCursor();
 }
 
 }
