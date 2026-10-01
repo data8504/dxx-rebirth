@@ -24,6 +24,7 @@
 
 #include "d_underlying_value.h"
 #include "mouse_delta.h"
+#include <cstdlib>
 
 namespace dcx {
 
