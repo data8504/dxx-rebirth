@@ -9,7 +9,7 @@ pkgdesc="An enhanced engine to play with Descent1 data."
 arch=('x86_64')
 url="https://www.dxx-rebirth.com/"
 license=('custom:D1x' 'LGPL' 'custom:as-is')
-depends=('sdl' 'sdl_image' 'sdl_mixer' 'mesa' 'physfs')
+depends=('sdl3>=3.2' 'sdl3_image>=3.2' 'sdl3_mixer>=3.2' 'mesa' 'physfs')
 makedepends=('scons' 'unzip')
 install="$pkgname.install"
 source=("https://www.dxx-rebirth.com/download/dxx/rebirth/dxx-rebirth_$pkgver-src.tar.xz"
@@ -41,4 +41,4 @@ package() {
 	install -m644 "dxx-rebirth_$pkgver-src/COPYING.txt" "$pkgdir/usr/share/licenses/$pkgname/"
 	install -m644 "d1xr-sc55-music.dxa" "$pkgdir/usr/share/$pkgname/"
 	install -m644 "d1xr-hires.dxa" "$pkgdir/usr/share/$pkgname/"
-} 
+}

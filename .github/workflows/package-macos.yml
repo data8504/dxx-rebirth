@@ -92,7 +92,6 @@ jobs:
           -j4
           -k
           opengl=1
-          sdl2=1
           macos_add_frameworks=0
           macos_bundle_libs=1
           build/D{1,2}X-Rebirth.app
@@ -132,7 +131,6 @@ jobs:
           -j4
           -k
           opengl=1
-          sdl2=1
           macos_add_frameworks=0
           macos_bundle_libs=1
           check_header_includes=1
