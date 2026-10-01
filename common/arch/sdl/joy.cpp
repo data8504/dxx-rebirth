@@ -67,7 +67,7 @@ class SDL_Joystick_deleter
 public:
 	static void operator()(SDL_Joystick *j)
 	{
-		SDL_JoystickClose(j);
+		SDL_CloseJoystick(j);
 	}
 };
 
@@ -191,7 +191,7 @@ static d_physical_joystick *find_joystick(const decltype(SDL_JoyButtonEvent::whi
 {
 	for (auto &joystick : partial_range(SDL_Joysticks, static_cast<unsigned>(num_joysticks)))
 	{
-		if (SDL_JoystickInstanceID(joystick.handle().get()) == which)
+		if (SDL_GetJoystickID(joystick.handle().get()) == which)
 			return &joystick;
 	}
 	return nullptr;
@@ -203,17 +203,17 @@ static d_physical_joystick *find_joystick(const decltype(SDL_JoyButtonEvent::whi
 window_event_result joy_button_handler(const SDL_JoyButtonEvent *const jbe)
 {
 	auto *const joystick = find_joystick(jbe->which);
-	if (!joystick)
+	if (!joystick || jbe->button >= joystick->button_map().size())
 		return window_event_result::ignored;
 	const unsigned button = joystick->button_map()[jbe->button];
 
-	Joystick.button_state[button] = jbe->state;
+	Joystick.button_state[button] = jbe->down;
 
 	const d_event_joystickbutton event{
-		(jbe->type == SDL_JOYBUTTONDOWN) ? event_type::joystick_button_down : event_type::joystick_button_up,
+		(jbe->type == SDL_EVENT_JOYSTICK_BUTTON_DOWN) ? event_type::joystick_button_down : event_type::joystick_button_up,
 		button
 	};
-	con_printf(CON_DEBUG, "Sending event %s, button %d", (jbe->type == SDL_JOYBUTTONDOWN) ? "event_type::joystick_button_down" : "EVENT_JOYSTICK_JOYSTICK_UP", event.button);
+	con_printf(CON_DEBUG, "Sending event %s, button %d", (jbe->type == SDL_EVENT_JOYSTICK_BUTTON_DOWN) ? "event_type::joystick_button_down" : "EVENT_JOYSTICK_JOYSTICK_UP", event.button);
 	return event_send(event);
 }
 #endif
@@ -222,7 +222,7 @@ window_event_result joy_button_handler(const SDL_JoyButtonEvent *const jbe)
 window_event_result joy_hat_handler(const SDL_JoyHatEvent *const jhe)
 {
 	auto *const joystick = find_joystick(jhe->which);
-	if (!joystick)
+	if (!joystick || jhe->hat >= joystick->hat_map().size())
 		return window_event_result::ignored;
 	int hat = joystick->hat_map()[jhe->hat];
 	window_event_result highest_result(window_event_result::ignored);
@@ -274,7 +274,7 @@ namespace {
 
 static window_event_result send_axis_button_event(unsigned button, event_type e)
 {
-	Joystick.button_state[button] = (e == event_type::joystick_button_up) ? SDL_RELEASED : SDL_PRESSED;
+	Joystick.button_state[button] = (e != event_type::joystick_button_up);
 	const d_event_joystickbutton event{ e, button };
 	con_printf(CON_DEBUG, "Sending event %s, button %d", (e == event_type::joystick_button_up) ? "event_type::joystick_button_up" : "event_type::joystick_button_down", event.button);
 	return event_send(event);
@@ -285,7 +285,7 @@ static window_event_result send_axis_button_event(unsigned button, event_type e)
 window_event_result joy_axisbutton_handler(const SDL_JoyAxisEvent *const jae)
 {
 	auto *const js = find_joystick(jae->which);
-	if (!js)
+	if (!js || jae->axis >= js->axis_value().size())
 		return window_event_result::ignored;
 	auto axis_value = js->axis_value()[jae->axis];
 	auto button = js->axis_button_map()[jae->axis];
@@ -320,7 +320,7 @@ window_event_result joy_axisbutton_handler(const SDL_JoyAxisEvent *const jae)
 window_event_result joy_axis_handler(const SDL_JoyAxisEvent *const jae)
 {
 	auto *const js = find_joystick(jae->which);
-	if (!js)
+	if (!js || jae->axis >= js->axis_value().size())
 		return window_event_result::ignored;
 	const auto axis = js->axis_map()[jae->axis];
 	auto &axis_value = js->axis_value()[jae->axis];
@@ -357,7 +357,7 @@ static unsigned check_warn_joy_support_limit(const unsigned n, const char *const
 
 void joy_init()
 {
-	if (SDL_Init(SDL_INIT_JOYSTICK) < 0) {
+	if (!SDL_InitSubSystem(SDL_INIT_JOYSTICK)) {
 		con_printf(CON_NORMAL, "sdl-joystick: initialisation failed: %s.",SDL_GetError());
 		return;
 	}
@@ -369,24 +369,28 @@ void joy_init()
 	joybutton_text.clear();
 	joy_key_map.clear();
 
-	const auto n = check_warn_joy_support_limit(SDL_NumJoysticks(), "joystick", DXX_MAX_JOYSTICKS);
-	cf_assert(n <= DXX_MAX_JOYSTICKS);
+	num_joysticks = 0;
+	int n{};
+	const std::unique_ptr<SDL_JoystickID, decltype(&SDL_free)> ids{SDL_GetJoysticks(&n), SDL_free};
 	unsigned joystick_n_buttons{0}, joystick_n_axes = 0;
-	range_for (const unsigned i, xrange(n))
+	range_for (const unsigned i, xrange(static_cast<unsigned>(n)))
 	{
-		if (SDL_IsGameController(i))
+		const auto id = ids.get()[i];
+		if (SDL_IsGamepad(id))
 		{
 			con_printf(CON_NORMAL, "sdl-gamecontroller: joystick #%d is a gamecontroller", i);
 			continue;
 		}
+		if (num_joysticks >= DXX_MAX_JOYSTICKS)
+			break;
 		auto &joystick = SDL_Joysticks[num_joysticks];
-		const auto handle = SDL_JoystickOpen(i);
+		const auto handle = SDL_OpenJoystick(id);
 		joystick.handle().reset(handle);
-		con_printf(CON_NORMAL, "sdl-joystick %d: %s", i, SDL_JoystickName(handle));
 		if (handle)
 		{
+			con_printf(CON_NORMAL, "sdl-joystick %d: %s", i, SDL_GetJoystickName(handle));
 #if DXX_MAX_AXES_PER_JOYSTICK
-			const auto n_axes = check_warn_joy_support_limit(SDL_JoystickNumAxes(handle), "axe", DXX_MAX_AXES_PER_JOYSTICK);
+			const auto n_axes = check_warn_joy_support_limit(SDL_GetNumJoystickAxes(handle), "axe", DXX_MAX_AXES_PER_JOYSTICK);
 
 			joyaxis_text.resize(joyaxis_text.size() + n_axes);
 			for (auto &&[idx, value] : enumerate(partial_range(joystick.axis_map(), n_axes), 1))
@@ -400,8 +404,8 @@ void joy_init()
             const auto n_axes{0};
 #endif
 
-			const auto n_buttons = check_warn_joy_support_limit(SDL_JoystickNumButtons(handle), "button", DXX_MAX_BUTTONS_PER_JOYSTICK);
-			const auto n_hats = check_warn_joy_support_limit(SDL_JoystickNumHats(handle), "hat", DXX_MAX_HATS_PER_JOYSTICK);
+			const auto n_buttons = check_warn_joy_support_limit(SDL_GetNumJoystickButtons(handle), "button", DXX_MAX_BUTTONS_PER_JOYSTICK);
+			const auto n_hats = check_warn_joy_support_limit(SDL_GetNumJoystickHats(handle), "hat", DXX_MAX_HATS_PER_JOYSTICK);
 
 			const auto n_virtual_buttons = n_buttons + (4 * n_hats) + (2 * n_axes);
 			joybutton_text.resize(joybutton_text.size() + n_virtual_buttons);
@@ -466,6 +470,7 @@ void joy_close()
 {
 	range_for (auto &j, SDL_Joysticks)
 		j.handle().reset();
+	num_joysticks = 0;
 #if DXX_MAX_AXES_PER_JOYSTICK
 	joyaxis_text.clear();
 #endif
@@ -486,7 +491,6 @@ void joy_flush()
 	if (!num_joysticks)
 		return;
 
-	static_assert(SDL_RELEASED == uint8_t(), "SDL_RELEASED not 0.");
 #if DXX_MAX_BUTTONS_PER_JOYSTICK
 	Joystick.button_state = {};
 #endif

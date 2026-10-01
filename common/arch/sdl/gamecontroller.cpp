@@ -6,14 +6,14 @@
  */
 /*
  *
- * SDL2 GameController support
+ * SDL3 gamepad support
  *
  */
 
 #include "dxxsconf.h"
 #include "joy.h"
 
-#if DXX_MAX_JOYSTICKS && SDL_MAJOR_VERSION == 2
+#if DXX_MAX_JOYSTICKS
 
 #include <memory>
 #include <vector>
@@ -57,19 +57,29 @@ namespace {
 
 struct SDL_GameController_deleter
 {
-	static void operator()(SDL_GameController *gc)
+	static void operator()(SDL_Gamepad *gc)
 	{
-		SDL_GameControllerClose(gc);
+		SDL_CloseGamepad(gc);
 	}
 };
 
 struct d_gamecontroller
 {
-	std::unique_ptr<SDL_GameController, SDL_GameController_deleter> handle;
-	SDL_JoystickID instance_id{-1};
+	std::unique_ptr<SDL_Gamepad, SDL_GameController_deleter> handle;
+	SDL_JoystickID instance_id{};
+	std::array<bool, GAMECONTROLLER_BUTTON_COUNT> buttons{};
+	std::array<int, SDL_GAMEPAD_AXIS_COUNT> axes{};
 };
 
 static std::array<d_gamecontroller, DXX_MAX_JOYSTICKS> GameControllers;
+
+static d_gamecontroller *gc_find_controller(const SDL_JoystickID id)
+{
+	for (auto &gc : partial_range(GameControllers, static_cast<unsigned>(num_controllers)))
+		if (gc.instance_id == id)
+			return &gc;
+	return nullptr;
+}
 
 struct d_event_joystickbutton : d_event
 {
@@ -85,19 +95,13 @@ struct d_event_joystick_moved : d_event, d_event_joystick_axis_value
 	using d_event::d_event;
 };
 
-/* SDL_GameController has a fixed layout:
- * 15 buttons: A, B, X, Y, Back, Guide, Start, LeftStick, RightStick,
- *             LeftShoulder, RightShoulder, DPadUp, DPadDown, DPadLeft, DPadRight
- * 6 axes:     LeftX, LeftY, RightX, RightY, TriggerLeft, TriggerRight
- *
- * We map these to a virtual joystick with:
- *   Buttons 0-14: the 15 GameController buttons
- *   Buttons 15-26: axis-as-button pairs (6 axes * 2 directions)
- *   Axes 0-5: the 6 GameController axes
+/* Retain the SDL2 profile layout: buttons 0-20, axis-as-button pairs 21-32,
+ * and axes 0-5.  SDL3's additional miscellaneous buttons do not shift saved
+ * trigger or stick bindings.
  */
 
-constexpr unsigned GC_NUM_BUTTONS = SDL_CONTROLLER_BUTTON_MAX;
-constexpr unsigned GC_NUM_AXES = SDL_CONTROLLER_AXIS_MAX;
+constexpr unsigned GC_NUM_BUTTONS = GAMECONTROLLER_BUTTON_COUNT;
+constexpr unsigned GC_NUM_AXES = SDL_GAMEPAD_AXIS_COUNT;
 constexpr unsigned GC_NUM_VIRTUAL_BUTTONS = GC_NUM_BUTTONS + (2 * GC_NUM_AXES);
 constexpr unsigned GC_AXIS_BUTTON_START = GC_NUM_BUTTONS;
 
@@ -105,40 +109,40 @@ static const char *gc_button_name(int button)
 {
 	switch (button)
 	{
-		case SDL_CONTROLLER_BUTTON_A: return "A";
-		case SDL_CONTROLLER_BUTTON_B: return "B";
-		case SDL_CONTROLLER_BUTTON_X: return "X";
-		case SDL_CONTROLLER_BUTTON_Y: return "Y";
-		case SDL_CONTROLLER_BUTTON_BACK: return "Back";
-		case SDL_CONTROLLER_BUTTON_GUIDE: return "Guide";
-		case SDL_CONTROLLER_BUTTON_START: return "Start";
-		case SDL_CONTROLLER_BUTTON_LEFTSTICK: return "L3";
-		case SDL_CONTROLLER_BUTTON_RIGHTSTICK: return "R3";
-		case SDL_CONTROLLER_BUTTON_LEFTSHOULDER: return "LB";
-		case SDL_CONTROLLER_BUTTON_RIGHTSHOULDER: return "RB";
-		case SDL_CONTROLLER_BUTTON_DPAD_UP: return "Up";
-		case SDL_CONTROLLER_BUTTON_DPAD_DOWN: return "Down";
-		case SDL_CONTROLLER_BUTTON_DPAD_LEFT: return "Left";
-		case SDL_CONTROLLER_BUTTON_DPAD_RIGHT: return "Right";
+		case SDL_GAMEPAD_BUTTON_SOUTH: return "A";
+		case SDL_GAMEPAD_BUTTON_EAST: return "B";
+		case SDL_GAMEPAD_BUTTON_WEST: return "X";
+		case SDL_GAMEPAD_BUTTON_NORTH: return "Y";
+		case SDL_GAMEPAD_BUTTON_BACK: return "Back";
+		case SDL_GAMEPAD_BUTTON_GUIDE: return "Guide";
+		case SDL_GAMEPAD_BUTTON_START: return "Start";
+		case SDL_GAMEPAD_BUTTON_LEFT_STICK: return "L3";
+		case SDL_GAMEPAD_BUTTON_RIGHT_STICK: return "R3";
+		case SDL_GAMEPAD_BUTTON_LEFT_SHOULDER: return "LB";
+		case SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER: return "RB";
+		case SDL_GAMEPAD_BUTTON_DPAD_UP: return "Up";
+		case SDL_GAMEPAD_BUTTON_DPAD_DOWN: return "Down";
+		case SDL_GAMEPAD_BUTTON_DPAD_LEFT: return "Left";
+		case SDL_GAMEPAD_BUTTON_DPAD_RIGHT: return "Right";
 		default: return "?";
 	}
 }
 
-constexpr std::array<char, 3> gc_axis_name(const SDL_GameControllerAxis axis)
+constexpr std::array<char, 3> gc_axis_name(const SDL_GamepadAxis axis)
 {
 	switch (axis)
 	{
-		case SDL_CONTROLLER_AXIS_LEFTX:
+		case SDL_GAMEPAD_AXIS_LEFTX:
 			return {"LX"};
-		case SDL_CONTROLLER_AXIS_LEFTY:
+		case SDL_GAMEPAD_AXIS_LEFTY:
 			return {"LY"};
-		case SDL_CONTROLLER_AXIS_RIGHTX:
+		case SDL_GAMEPAD_AXIS_RIGHTX:
 			return {"RX"};
-		case SDL_CONTROLLER_AXIS_RIGHTY:
+		case SDL_GAMEPAD_AXIS_RIGHTY:
 			return {"RY"};
-		case SDL_CONTROLLER_AXIS_TRIGGERLEFT:
+		case SDL_GAMEPAD_AXIS_LEFT_TRIGGER:
 			return {"LT"};
-		case SDL_CONTROLLER_AXIS_TRIGGERRIGHT:
+		case SDL_GAMEPAD_AXIS_RIGHT_TRIGGER:
 			return {"RT"};
 		default:
 			[[unlikely]];
@@ -148,36 +152,35 @@ constexpr std::array<char, 3> gc_axis_name(const SDL_GameControllerAxis axis)
 
 #if DXX_MAX_BUTTONS_PER_JOYSTICK
 constexpr auto gc_key_map{[]() {
-	std::array<unsigned, 1 + (GC_AXIS_BUTTON_START + (SDL_CONTROLLER_AXIS_LEFTY * 2) + 1)> gc_key_map{};
+	std::array<unsigned, 1 + (GC_AXIS_BUTTON_START + (SDL_GAMEPAD_AXIS_LEFTY * 2) + 1)> gc_key_map{};
 	// Standard menu key mappings using GameController button names
-	gc_key_map[SDL_CONTROLLER_BUTTON_A] = KEY_ENTER;
-	gc_key_map[SDL_CONTROLLER_BUTTON_B] = KEY_ESC;
-	gc_key_map[SDL_CONTROLLER_BUTTON_X] = KEY_SPACEBAR;
-	gc_key_map[SDL_CONTROLLER_BUTTON_Y] = KEY_DELETE;
-	gc_key_map[SDL_CONTROLLER_BUTTON_DPAD_UP] = KEY_UP;
-	gc_key_map[SDL_CONTROLLER_BUTTON_DPAD_DOWN] = KEY_DOWN;
-	gc_key_map[SDL_CONTROLLER_BUTTON_DPAD_LEFT] = KEY_LEFT;
-	gc_key_map[SDL_CONTROLLER_BUTTON_DPAD_RIGHT] = KEY_RIGHT;
-	gc_key_map[SDL_CONTROLLER_BUTTON_START] = KEY_PAUSE;
-	gc_key_map[SDL_CONTROLLER_BUTTON_BACK] = KEY_ESC;
-	gc_key_map[SDL_CONTROLLER_BUTTON_LEFTSTICK] = KEY_F4 + KEY_SHIFTED; // Guidebot menu (D2)
+	gc_key_map[SDL_GAMEPAD_BUTTON_SOUTH] = KEY_ENTER;
+	gc_key_map[SDL_GAMEPAD_BUTTON_EAST] = KEY_ESC;
+	gc_key_map[SDL_GAMEPAD_BUTTON_WEST] = KEY_SPACEBAR;
+	gc_key_map[SDL_GAMEPAD_BUTTON_NORTH] = KEY_DELETE;
+	gc_key_map[SDL_GAMEPAD_BUTTON_DPAD_UP] = KEY_UP;
+	gc_key_map[SDL_GAMEPAD_BUTTON_DPAD_DOWN] = KEY_DOWN;
+	gc_key_map[SDL_GAMEPAD_BUTTON_DPAD_LEFT] = KEY_LEFT;
+	gc_key_map[SDL_GAMEPAD_BUTTON_DPAD_RIGHT] = KEY_RIGHT;
+	gc_key_map[SDL_GAMEPAD_BUTTON_START] = KEY_PAUSE;
+	gc_key_map[SDL_GAMEPAD_BUTTON_BACK] = KEY_ESC;
+	gc_key_map[SDL_GAMEPAD_BUTTON_LEFT_STICK] = KEY_F4 + KEY_SHIFTED; // Guidebot menu (D2)
 	// Left stick axis-buttons map to arrows for menu navigation
-	gc_key_map[GC_AXIS_BUTTON_START + (SDL_CONTROLLER_AXIS_LEFTX * 2)] = KEY_RIGHT;      // +LX = right
-	gc_key_map[GC_AXIS_BUTTON_START + (SDL_CONTROLLER_AXIS_LEFTX * 2) + 1] = KEY_LEFT;   // -LX = left
-	gc_key_map[GC_AXIS_BUTTON_START + (SDL_CONTROLLER_AXIS_LEFTY * 2)] = KEY_DOWN;       // +LY = down
-	gc_key_map[GC_AXIS_BUTTON_START + (SDL_CONTROLLER_AXIS_LEFTY * 2) + 1] = KEY_UP;     // -LY = up
+	gc_key_map[GC_AXIS_BUTTON_START + (SDL_GAMEPAD_AXIS_LEFTX * 2)] = KEY_RIGHT;      // +LX = right
+	gc_key_map[GC_AXIS_BUTTON_START + (SDL_GAMEPAD_AXIS_LEFTX * 2) + 1] = KEY_LEFT;   // -LX = left
+	gc_key_map[GC_AXIS_BUTTON_START + (SDL_GAMEPAD_AXIS_LEFTY * 2)] = KEY_DOWN;       // +LY = down
+	gc_key_map[GC_AXIS_BUTTON_START + (SDL_GAMEPAD_AXIS_LEFTY * 2) + 1] = KEY_UP;     // -LY = up
 	return gc_key_map;
 }()};
 #endif
 
-static std::array<int, GC_NUM_AXES> gc_axis_values{};
 
 static void gc_load_controller_db()
 {
 	// Try to load gamecontrollerdb.txt from PhysFS search path
 	if (auto &&[rwops, physfserr]{PHYSFSRWOPS_openRead("gamecontrollerdb.txt")}; rwops)
 	{
-		if (const auto n{SDL_GameControllerAddMappingsFromRW(rwops.get(), 0)}; n >= 0)
+		if (const auto n{SDL_AddGamepadMappingsFromIO(rwops.get(), 0)}; n >= 0)
 		{
 			con_printf(CON_NORMAL, "gamecontroller: loaded %d mappings from PhysFS gamecontrollerdb.txt", n);
 			return;
@@ -189,13 +192,13 @@ static void gc_load_controller_db()
 #ifdef DXX_GAMECONTROLLER_DB_DIRECTORY
 	/* Allow the build system to specify one additional search directory.  If
 	 * set, `DXX_GAMECONTROLLER_DB_DIRECTORY` must be a string literal suitable
-	 * for use with `SDL_RWFromFile`.  It must be a path in the platform native
+	 * for use with `SDL_IOFromFile`.  It must be a path in the platform native
 	 * form and, if relative, is parsed relative to the current working
 	 * directory of the game.
 	 */
 	{
 		static constexpr char path[]{DXX_GAMECONTROLLER_DB_DIRECTORY};
-		if (const auto n{SDL_GameControllerAddMappingsFromFile(path)}; n >= 0)
+		if (const auto n{SDL_AddGamepadMappingsFromFile(path)}; n >= 0)
 		{
 			con_printf(CON_NORMAL, "gamecontroller: loaded %d mappings from %s", n, path);
 			return;
@@ -209,8 +212,7 @@ static void gc_load_controller_db()
 	{
 		std::array<char, PATH_MAX> path;
 		snprintf(path.data(), path.size(), "%sgamecontrollerdb.txt", base);
-		SDL_free(base);
-		const auto n = SDL_GameControllerAddMappingsFromFile(path.data());
+		const auto n = SDL_AddGamepadMappingsFromFile(path.data());
 		if (n >= 0)
 		{
 			con_printf(CON_NORMAL, "gamecontroller: loaded %d mappings from %s", n, path.data());
@@ -221,10 +223,9 @@ static void gc_load_controller_db()
 #endif
 }
 
-static void gc_open_controller(int device_index)
+static void gc_open_controller(const SDL_JoystickID instance_id)
 {
-	// Check if already open (SDL2 may fire ADDED for already-connected devices)
-	const auto instance_id = SDL_JoystickGetDeviceInstanceID(device_index);
+	// Startup enumeration and queued ADDED events may describe the same device.
 	for (int i = 0; i < num_controllers; i++)
 	{
 		if (GameControllers[i].instance_id == instance_id)
@@ -233,41 +234,59 @@ static void gc_open_controller(int device_index)
 
 	if (num_controllers >= DXX_MAX_JOYSTICKS)
 	{
-		con_printf(CON_NORMAL, "gamecontroller: ignoring device %d, max %d controllers supported", device_index, DXX_MAX_JOYSTICKS);
+		con_printf(CON_NORMAL, "gamecontroller: ignoring device %u, max %d controllers supported", instance_id, DXX_MAX_JOYSTICKS);
 		return;
 	}
 
 	auto &gc = GameControllers[num_controllers];
-	gc.handle.reset(SDL_GameControllerOpen(device_index));
+	gc.buttons = {};
+	gc.axes = {};
+	gc.handle.reset(SDL_OpenGamepad(instance_id));
 	if (!gc.handle)
 	{
-		con_printf(CON_NORMAL, "gamecontroller: failed to open device %d: %s", device_index, SDL_GetError());
+		con_printf(CON_NORMAL, "gamecontroller: failed to open device %u: %s", instance_id, SDL_GetError());
 		return;
 	}
 
-	auto *joy = SDL_GameControllerGetJoystick(gc.handle.get());
-	gc.instance_id = SDL_JoystickInstanceID(joy);
-	const char *name = SDL_GameControllerName(gc.handle.get());
+	auto *joy = SDL_GetGamepadJoystick(gc.handle.get());
+	gc.instance_id = SDL_GetJoystickID(joy);
+	const char *name = SDL_GetGamepadName(gc.handle.get());
 	con_printf(CON_NORMAL, "gamecontroller %d: %s (instance %d)", num_controllers, name ? name : "Unknown", gc.instance_id);
 	num_controllers++;
 }
 
-static void gc_close_controller(SDL_JoystickID instance_id)
+static window_event_result gc_close_controller(SDL_JoystickID instance_id)
 {
 	for (int i = 0; i < num_controllers; i++)
 	{
 		if (GameControllers[i].instance_id == instance_id)
 		{
+			window_event_result result{window_event_result::ignored};
+			auto &gc = GameControllers[i];
+			for (unsigned button = 0; button != gc.buttons.size(); ++button)
+				if (gc.buttons[button])
+					result = std::max(event_send(d_event_joystickbutton{event_type::joystick_button_up, button}), result);
+			for (unsigned axis = 0; axis != gc.axes.size(); ++axis)
+				if (const auto value = gc.axes[axis])
+				{
+					const auto button = GC_AXIS_BUTTON_START + axis * 2 + (value < 0);
+					result = std::max(event_send(d_event_joystickbutton{event_type::joystick_button_up, button}), result);
+					d_event_joystick_moved event{event_type::joystick_moved};
+					event.axis = axis;
+					event.value = 0;
+					result = std::max(event_send(event), result);
+				}
 			con_printf(CON_NORMAL, "gamecontroller: removed controller %d (instance %d)", i, instance_id);
 			GameControllers[i].handle.reset();
-			GameControllers[i].instance_id = -1;
+			GameControllers[i].instance_id = 0;
 			// Shift remaining controllers down
 			for (int j = i; j < num_controllers - 1; j++)
 				GameControllers[j] = std::move(GameControllers[j + 1]);
 			num_controllers--;
-			return;
+			return result;
 		}
 	}
+	return window_event_result::ignored;
 }
 
 } // end anonymous namespace
@@ -277,12 +296,12 @@ constexpr gamecontroller_axis_text_array gamecontroller_axis_text{
 	[]() {
 		gamecontroller_axis_text_array r;
 		for (const auto i : {
-			SDL_CONTROLLER_AXIS_LEFTX,
-			SDL_CONTROLLER_AXIS_LEFTY,
-			SDL_CONTROLLER_AXIS_RIGHTX,
-			SDL_CONTROLLER_AXIS_RIGHTY,
-			SDL_CONTROLLER_AXIS_TRIGGERLEFT,
-			SDL_CONTROLLER_AXIS_TRIGGERRIGHT
+			SDL_GAMEPAD_AXIS_LEFTX,
+			SDL_GAMEPAD_AXIS_LEFTY,
+			SDL_GAMEPAD_AXIS_RIGHTX,
+			SDL_GAMEPAD_AXIS_RIGHTY,
+			SDL_GAMEPAD_AXIS_LEFT_TRIGGER,
+			SDL_GAMEPAD_AXIS_RIGHT_TRIGGER
 			})
 			r[i] = gc_axis_name(i);
 		return r;
@@ -292,12 +311,11 @@ constexpr gamecontroller_axis_text_array gamecontroller_axis_text{
 
 void gamecontroller_init()
 {
-	if (SDL_Init(SDL_INIT_GAMECONTROLLER) < 0) {
+	if (!SDL_InitSubSystem(SDL_INIT_GAMEPAD)) {
 		con_printf(CON_NORMAL, "gamecontroller: initialization failed: %s.", SDL_GetError());
 		return;
 	}
 
-	gc_axis_values = {};
 	gcbutton_text.clear();
 	num_controllers = 0;
 
@@ -305,7 +323,7 @@ void gamecontroller_init()
 	gc_load_controller_db();
 
 	// Enable controller events
-	SDL_GameControllerEventState(SDL_ENABLE);
+	SDL_SetGamepadEventsEnabled(true);
 
 	// Set up fixed button/axis text and key mappings
 	gcbutton_text.resize(GC_NUM_VIRTUAL_BUTTONS);
@@ -323,17 +341,17 @@ void gamecontroller_init()
 		const auto base = GC_AXIS_BUTTON_START + (i * 2);
 		auto &text_pos = gcbutton_text[base];
 		auto &text_neg = gcbutton_text[base + 1];
-		auto &&name{gc_axis_name(static_cast<SDL_GameControllerAxis>(i))};
+		auto &&name{gc_axis_name(static_cast<SDL_GamepadAxis>(i))};
 		snprintf(text_pos.data(), text_pos.size(), "+%s", name.data());
 		snprintf(text_neg.data(), text_neg.size(), "-%s", name.data());
 	}
 
-	const auto n_js = SDL_NumJoysticks();
+	int n_js{};
+	const std::unique_ptr<SDL_JoystickID, decltype(&SDL_free)> ids{SDL_GetGamepads(&n_js), SDL_free};
 	con_printf(CON_NORMAL, "gamecontroller: %d joystick(s) detected", n_js);
 	for (int i = 0; i < n_js; i++)
 	{
-		if (SDL_IsGameController(i))
-			gc_open_controller(i);
+		gc_open_controller(ids.get()[i]);
 	}
 }
 
@@ -349,23 +367,29 @@ void gamecontroller_flush()
 {
 	if (!num_controllers)
 		return;
-	gc_axis_values = {};
+	for (auto &gc : GameControllers)
+	{
+		gc.axes = {};
+		gc.buttons = {};
+	}
 }
 
 // --- GameController event handlers ---
 
-window_event_result gc_button_handler(const SDL_ControllerButtonEvent *const cbe)
+window_event_result gc_button_handler(const SDL_GamepadButtonEvent *const cbe)
 {
 	const unsigned button = cbe->button;
-	if (button >= GC_NUM_BUTTONS)
+	auto *const gc = gc_find_controller(cbe->which);
+	if (!gc || button >= GC_NUM_BUTTONS)
 		return window_event_result::ignored;
+	gc->buttons[button] = cbe->down;
 
 	const d_event_joystickbutton event{
-		(cbe->type == SDL_CONTROLLERBUTTONDOWN) ? event_type::joystick_button_down : event_type::joystick_button_up,
+		(cbe->type == SDL_EVENT_GAMEPAD_BUTTON_DOWN) ? event_type::joystick_button_down : event_type::joystick_button_up,
 		button
 	};
 	con_printf(CON_DEBUG, "gamecontroller: button %s (%u) %s", gc_button_name(button), button,
-		(cbe->type == SDL_CONTROLLERBUTTONDOWN) ? "down" : "up");
+		(cbe->type == SDL_EVENT_GAMEPAD_BUTTON_DOWN) ? "down" : "up");
 	return event_send(event);
 }
 
@@ -379,14 +403,15 @@ static window_event_result gc_send_axis_button_event(unsigned button, event_type
 
 }
 
-window_event_result gc_axisbutton_handler(const SDL_ControllerAxisEvent *const cae)
+window_event_result gc_axisbutton_handler(const SDL_GamepadAxisEvent *const cae)
 {
 	const auto axis = cae->axis;
-	if (axis >= GC_NUM_AXES)
+	auto *const gc = gc_find_controller(cae->which);
+	if (!gc || axis >= GC_NUM_AXES)
 		return window_event_result::ignored;
 
 	const auto button = GC_AXIS_BUTTON_START + (axis * 2);
-	const auto old_value = gc_axis_values[axis];
+	const auto old_value = gc->axes[axis];
 	const auto new_raw = cae->value / 256;  // Scale to -128..127
 
 	const int deadzone = 38;  // ~30% deadzone
@@ -413,14 +438,15 @@ window_event_result gc_axisbutton_handler(const SDL_ControllerAxisEvent *const c
 	return highest_result;
 }
 
-window_event_result gc_axis_handler(const SDL_ControllerAxisEvent *const cae)
+window_event_result gc_axis_handler(const SDL_GamepadAxisEvent *const cae)
 {
 	const auto axis = cae->axis;
-	if (axis >= GC_NUM_AXES)
+	auto *const gc = gc_find_controller(cae->which);
+	if (!gc || axis >= GC_NUM_AXES)
 		return window_event_result::ignored;
 
 	const auto new_value = cae->value / 256;
-	auto &old_value = gc_axis_values[axis];
+	auto &old_value = gc->axes[axis];
 	if (old_value == new_value)
 		return window_event_result::ignored;
 
@@ -431,18 +457,17 @@ window_event_result gc_axis_handler(const SDL_ControllerAxisEvent *const cae)
 	return event_send(event);
 }
 
-window_event_result gc_device_added(const SDL_ControllerDeviceEvent *const cde)
+window_event_result gc_device_added(const SDL_GamepadDeviceEvent *const cde)
 {
 	con_printf(CON_NORMAL, "gamecontroller: device added (index %d)", cde->which);
 	gc_open_controller(cde->which);
 	return window_event_result::handled;
 }
 
-window_event_result gc_device_removed(const SDL_ControllerDeviceEvent *const cde)
+window_event_result gc_device_removed(const SDL_GamepadDeviceEvent *const cde)
 {
 	con_printf(CON_NORMAL, "gamecontroller: device removed (instance %d)", cde->which);
-	gc_close_controller(cde->which);
-	return window_event_result::handled;
+	return std::max(gc_close_controller(cde->which), window_event_result::handled);
 }
 
 #if DXX_MAX_BUTTONS_PER_JOYSTICK
@@ -462,4 +487,4 @@ bool gamecontroller_translate_menu_key(const unsigned button)
 
 }
 
-#endif // DXX_MAX_JOYSTICKS && SDL_MAJOR_VERSION == 2
+#endif // DXX_MAX_JOYSTICKS
