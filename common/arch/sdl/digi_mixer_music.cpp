@@ -13,8 +13,8 @@
  */
 
 #include <span>
-#include <SDL.h>
-#include <SDL_mixer.h>
+#include <SDL3/SDL.h>
+#include <SDL3_mixer/SDL_mixer.h>
 #include <string.h>
 #include <stdlib.h>
 
@@ -29,145 +29,69 @@
 #include "console.h"
 #include "physfsrwops.h"
 
-/* SDL_mixer-2 (and possibly later versions, though that has not been checked)
- * are consistent, and can handle the memory management internally.  For
- * completeness, provide a compile-time knob for Rebirth to manage this, but
- * default it to delegate to SDL_mixer.
- */
-#ifndef DXX_USE_SDL_RWOPS_MANAGEMENT
-#define DXX_USE_SDL_RWOPS_MANAGEMENT	1
-#endif
-
+/* MIX_LoadAudio_IO copies its source before returning, including encoded
+ * music.  The IO wrapper and source buffer can therefore expire immediately. */
 namespace dcx {
 
 namespace {
 
 struct Music_delete
 {
-	static void operator()(Mix_Music *m)
-	{
-		Mix_FreeMusic(m);
-	}
+	static void operator()(MIX_Audio *const audio) { MIX_DestroyAudio(audio); }
 };
 
-struct music_storage_buffer
+class current_music_t : public std::unique_ptr<MIX_Audio, Music_delete>
 {
-	std::vector<uint8_t> musicbuf;
-};
-
-class current_music_t :
-	/* Inherit from `music_storage_buffer` first, so that `musicbuf` is
-	 * destroyed after all other members of `current_music_t`.  This ensures
-	 * that a `Mix_Music` or `SDL_RWops` that refers to the buffer is destroyed
-	 * before the buffer is freed.
-	 */
-	public music_storage_buffer,
-#if !DXX_USE_SDL_RWOPS_MANAGEMENT
-	/* If the memory management is not delegated to SDL, then an additional
-	 * `std::unique_ptr` is needed to track and free the memory.  Based on code
-	 * inspection, SDL_mixer does not appear to access the `SDL_RWops`
-	 * structure while processing the `Mix_FreeMusic` call.  However, since
-	 * logically the `Mix_Music` depends on the `SDL_RWops`, it seems safer to
-	 * assume that `Mix_FreeMusic` might access the `SDL_RWops`, and arrange
-	 * for the lifetime of `SDL_RWops` to exceed the lifetime of the
-	 * `Mix_Music`.  Therefore, the `SDL_RWops` is stored earlier in the class
-	 * than the `Mix_Music`, and is destroyed later.
-	 *
-	 * If the memory management is delegated to SDL, then no additional storage
-	 * is needed.
-	 */
-	RWops_ptr,
-#endif
-	std::unique_ptr<Mix_Music, Music_delete>
-{
-	using music_pointer = std::unique_ptr<Mix_Music, Music_delete>;
+	using music_pointer = std::unique_ptr<MIX_Audio, Music_delete>;
 public:
-#if DXX_USE_SDL_RWOPS_MANAGEMENT
-	/* Inherit the zero-argument form of `reset`, since the `reset()` method on
-	 * this class would only be a call to `music_pointer::reset()`.  Prohibit
-	 * use of the one-argument form of `reset`, since it would not be visible
-	 * in the `#else` case.
-	 */
+	std::vector<uint8_t> musicbuf;
 	using music_pointer::reset;
-	void reset(auto) = delete;
-#else
-	void reset()
+	[[nodiscard]] bool reset(RWops_ptr rw)
 	{
-		music_pointer::reset();
-		RWops_ptr::reset();
+		if (!rw)
+		{
+			music_pointer::reset();
+			return false;
+		}
+		music_pointer::reset(MIX_LoadAudio_IO(digi_mixer_get_mixer(), rw.get(), false, false));
+		return static_cast<bool>(*this);
 	}
-#endif
-	[[nodiscard]]
-	uintptr_t reset(RWops_ptr rw);
-	using music_pointer::operator bool;
-	using music_pointer::get;
 };
-
-uintptr_t current_music_t::reset(RWops_ptr rw)
-{
-	if (!rw)
-	{
-		/* As a special case, exit early if rw is nullptr.  SDL is
-		 * guaranteed to fail in this case, but will set an error message
-		 * when it does so.  The error message about a nullptr SDL_RWops
-		 * will replace any prior error message, which might have been more
-		 * useful.
-		 */
-		reset();
-		return 0;
-	}
-	const auto music{Mix_LoadMUSType_RW(rw.get(), MUS_NONE, DXX_USE_SDL_RWOPS_MANAGEMENT)};
-	music_pointer::reset(music);
-#if DXX_USE_SDL_RWOPS_MANAGEMENT
-	/* The `SDL_RWops` is now owned by SDL_mixer, so clear the
-	 * `std::unique_ptr` to avoid freeing the `SDL_RWops`.
-	 *
-	 * If the load failed, then the `SDL_RWops` has already been freed.
-	 * If the load succeeded, then SDL_mixer will free the `SDL_RWops` when the
-	 * `Mix_Music` is destroyed.
-	 */
-	rw.release();
-#else
-	if (music)
-	{
-		/* The `SDL_RWops` remains owned by Rebirth, but must remain alive
-		 * until the `Mix_Music` is destroyed, so transfer the `SDL_RWops` into
-		 * the class to extend its lifetime.
-		 *
-		 * The previous `Mix_Music`, if any, was freed by the
-		 * `music_pointer::reset` above, so the previous `SDL_RWops`, if any,
-		 * can now be freed safely.
-		 */
-		RWops_ptr::operator=(std::move(rw));
-	}
-	else
-	{
-		/* If `!music`, the SDL_RWops is owned by Rebirth, but not needed since
-		 * there is no music to use it.  Allow it to expire at the end of the
-		 * function.
-		 *
-		 * Clear the prior RWops_ptr, if any, since it corresponds to the prior
-		 * music that was freed above.
-		 */
-		RWops_ptr::reset();
-	}
-#endif
-	/* Return the pointer as an integer, because callers should only check for
-	 * success versus failure, and should not dereference the `Mix_Music *`.
-	 */
-	return reinterpret_cast<uintptr_t>(music);
-}
 
 static current_music_t current_music;
+static void (*music_finished_hook)();
 
-static void mix_set_music_type_sdlmixer(int loop, void (*const hook_finished_track)())
+static void music_finished(void *, MIX_Track *)
 {
-	Mix_PlayMusic(current_music.get(), (loop ? -1 : 1));
-	Mix_HookMusicFinished(hook_finished_track);
+	if (const auto hook = music_finished_hook)
+		hook();
+}
+
+static bool play_music_track(const int loop, void (*const hook)())
+{
+	const auto track = digi_mixer_get_music_track();
+	music_finished_hook = hook;
+	MIX_SetTrackStoppedCallback(track, music_finished, nullptr);
+	const auto options = SDL_CreateProperties();
+	SDL_SetNumberProperty(options, MIX_PROP_PLAY_LOOPS_NUMBER, loop ? -1 : 0);
+	const auto played = MIX_PlayTrack(track, options);
+	SDL_DestroyProperties(options);
+	return played;
+}
+
+static bool mix_set_music_type_sdlmixer(int loop, void (*const hook_finished_track)())
+{
+	return MIX_SetTrackAudio(digi_mixer_get_music_track(), current_music.get())
+		&& play_music_track(loop, hook_finished_track);
 }
 
 #if DXX_USE_ADLMIDI
 static ADL_MIDIPlayer_t current_adlmidi;
+struct music_stream_deleter
+{
+	static void operator()(SDL_AudioStream *const stream) { SDL_DestroyAudioStream(stream); }
+};
+static std::unique_ptr<SDL_AudioStream, music_stream_deleter> adlmidi_stream;
 static ADL_MIDIPlayer *get_adlmidi()
 {
 	if (!CGameCfg.ADLMIDI_enabled)
@@ -175,9 +99,10 @@ static ADL_MIDIPlayer *get_adlmidi()
 	ADL_MIDIPlayer *adlmidi = current_adlmidi.get();
 	if (!adlmidi)
 	{
-		int sample_rate;
-		Mix_QuerySpec(&sample_rate, nullptr, nullptr);
-		adlmidi = adl_init(sample_rate);
+		SDL_AudioSpec spec;
+		if (!MIX_GetMixerFormat(digi_mixer_get_mixer(), &spec))
+			return nullptr;
+		adlmidi = adl_init(spec.freq);
 		if (adlmidi)
 		{
 			adl_switchEmulator(adlmidi, ADLMIDI_EMU_DOSBOX);
@@ -190,14 +115,21 @@ static ADL_MIDIPlayer *get_adlmidi()
 	return adlmidi;
 }
 
-static void mix_adlmidi(void *udata, Uint8 *stream, int len);
+static void mix_adlmidi(void *, SDL_AudioStream *, int, int);
 
-static void mix_set_music_type_adl(int loop, void (*const hook_finished_track)())
+static bool mix_set_music_type_adl(int loop, void (*const hook_finished_track)())
 {
 	ADL_MIDIPlayer *adlmidi = get_adlmidi();
+	SDL_AudioSpec output;
+	if (!adlmidi || !MIX_GetMixerFormat(digi_mixer_get_mixer(), &output))
+		return false;
+	const SDL_AudioSpec input{SDL_AUDIO_S16, 2, output.freq};
+	adlmidi_stream.reset(SDL_CreateAudioStream(&input, &output));
+	if (!adlmidi_stream || !SDL_SetAudioStreamGetCallback(adlmidi_stream.get(), mix_adlmidi, adlmidi)
+		|| !MIX_SetTrackAudioStream(digi_mixer_get_music_track(), adlmidi_stream.get()))
+		return false;
 	adl_setLoopEnabled(adlmidi, loop);
-	Mix_HookMusic(&mix_adlmidi, nullptr);
-	Mix_HookMusicFinished(hook_finished_track);
+	return play_music_track(0, hook_finished_track);
 }
 #endif
 
@@ -310,7 +242,7 @@ int mix_play_file(const char *filename, int loop, void (*const entry_hook_finish
 			con_printf(CON_VERBOSE, "warning: failed to open PhysFS file \"%s\"", filename);
 	}
 
-	con_printf(CON_CRITICAL, "Music %s could not be loaded: %s", filename, Mix_GetError());
+	con_printf(CON_CRITICAL, "Music %s could not be loaded: %s", filename, SDL_GetError());
 	mix_stop_music();
 
 	return 0;
@@ -319,15 +251,13 @@ int mix_play_file(const char *filename, int loop, void (*const entry_hook_finish
 // What to do when stopping song playback
 void mix_free_music()
 {
-	Mix_HaltMusic();
+	mix_stop_music();
+	const auto track = digi_mixer_get_music_track();
+	if (track)
+		MIX_SetTrackAudio(track, nullptr);
 #if DXX_USE_ADLMIDI
-	/* Only ADLMIDI can set a hook, so if ADLMIDI is compiled out, there is no
-	 * need to clear the hook.
-	 *
-	 * When ADLMIDI is supported, clear unconditionally, instead of checking
-	 * whether the music type requires it.
-	 */
-	Mix_HookMusic(nullptr, nullptr);
+	/* Detach the track before releasing the procedural source. */
+	adlmidi_stream.reset();
 #endif
 	current_music.reset();
 #if DXX_HAVE_POISON_VALGRIND || !defined(NDEBUG)
@@ -347,31 +277,38 @@ void mix_free_music()
 
 void mix_set_music_volume(int vol)
 {
-	vol *= MIX_MAX_VOLUME/8;
-	Mix_VolumeMusic(vol);
+	if (const auto track = digi_mixer_get_music_track())
+		MIX_SetTrackGain(track, vol / 8.f);
 }
 
 void mix_stop_music()
 {
-	Mix_HaltMusic();
+	if (const auto track = digi_mixer_get_music_track())
+	{
+		/* Explicit stops must not advance a playlist or recurse into free. */
+		MIX_SetTrackStoppedCallback(track, nullptr, nullptr);
+		MIX_StopTrack(track, 0);
+	}
+	music_finished_hook = nullptr;
 }
 
 void mix_pause_music()
 {
-	Mix_PauseMusic();
+	MIX_PauseTrack(digi_mixer_get_music_track());
 }
 
 void mix_resume_music()
 {
-	Mix_ResumeMusic();
+	MIX_ResumeTrack(digi_mixer_get_music_track());
 }
 
 void mix_pause_resume_music()
 {
-	if (Mix_PausedMusic())
-		Mix_ResumeMusic();
-	else if (Mix_PlayingMusic())
-		Mix_PauseMusic();
+	const auto track = digi_mixer_get_music_track();
+	if (MIX_TrackPaused(track))
+		MIX_ResumeTrack(track);
+	else if (MIX_TrackPlaying(track))
+		MIX_PauseTrack(track);
 }
 
 namespace {
@@ -382,16 +319,16 @@ static CurrentMusicType load_mus_data(const char *const filename, const std::spa
 	const auto adlmidi = get_adlmidi();
 	if (adlmidi && adl_openData(adlmidi, data.data(), data.size()) == 0)
 	{
-		mix_set_music_type_adl(loop, hook_finished_track);
-		return CurrentMusicType::ADLMIDI;
+		if (mix_set_music_type_adl(loop, hook_finished_track))
+			return CurrentMusicType::ADLMIDI;
 	}
 	else
 #endif
 	{
-		if (current_music.reset(RWops_ptr{SDL_RWFromConstMem(data.data(), data.size())}))
+		if (current_music.reset(RWops_ptr{SDL_IOFromConstMem(data.data(), data.size())}))
 		{
-			mix_set_music_type_sdlmixer(loop, hook_finished_track);
-			return CurrentMusicType::SDLMixer;
+			if (mix_set_music_type_sdlmixer(loop, hook_finished_track))
+				return CurrentMusicType::SDLMixer;
 		}
 		else
 			con_printf(CON_VERBOSE, "warning: failed to load music from data from file \"%s\"", filename);
@@ -405,17 +342,17 @@ static CurrentMusicType load_mus_file(const char *filename, int loop, void (*con
 	const auto adlmidi = get_adlmidi();
 	if (adlmidi && adl_openFile(adlmidi, filename) == 0)
 	{
-		mix_set_music_type_adl(loop, hook_finished_track);
-		return CurrentMusicType::ADLMIDI;
+		if (mix_set_music_type_adl(loop, hook_finished_track))
+			return CurrentMusicType::ADLMIDI;
 	}
 	else
 #endif
-	if (RWops_ptr rw{SDL_RWFromFile(filename, "rb")})
+	if (RWops_ptr rw{SDL_IOFromFile(filename, "rb")})
 	{
 		if (current_music.reset(std::move(rw)))
 		{
-			mix_set_music_type_sdlmixer(loop, hook_finished_track);
-			return CurrentMusicType::SDLMixer;
+			if (mix_set_music_type_sdlmixer(loop, hook_finished_track))
+				return CurrentMusicType::SDLMixer;
 		}
 		else
 			con_printf(CON_VERBOSE, "warning: failed to load music from filesystem file \"%s\"", filename);
@@ -437,20 +374,30 @@ static int16_t sat16(int32_t x)
 	return x;
 }
 
-static void mix_adlmidi(void *, Uint8 *stream, int len)
+static void mix_adlmidi(void *const userdata, SDL_AudioStream *const stream, const int additional, int)
 {
+	if (additional <= 0)
+		return;
 	ADLMIDI_AudioFormat format;
 	format.containerSize = sizeof(int16_t);
 	format.sampleOffset = 2 * format.containerSize;
 	format.type = ADLMIDI_SampleType_S16;
 
-	ADL_MIDIPlayer *adlmidi = get_adlmidi();
-	int sampleCount = len / format.containerSize;
-	adl_playFormat(adlmidi, sampleCount, stream, stream + format.containerSize, &format);
-
-	const auto samples = reinterpret_cast<int16_t *>(stream);
+	auto *const adlmidi = static_cast<ADL_MIDIPlayer *>(userdata);
+	const int requested_samples = ((additional + 3) / 4) * 2;
+	auto samples = std::make_unique<int16_t[]>(requested_samples);
+	auto bytes = reinterpret_cast<uint8_t *>(samples.get());
+	const int sampleCount = adl_playFormat(adlmidi, requested_samples, bytes, bytes + format.containerSize, &format);
+	if (sampleCount <= 0)
+	{
+		SDL_FlushAudioStream(stream);
+		return;
+	}
 	const auto amplify = [](int16_t i) { return sat16(2 * i); };
-	std::transform(samples, samples + sampleCount, samples, amplify);
+	std::transform(samples.get(), samples.get() + sampleCount, samples.get(), amplify);
+	SDL_PutAudioStreamData(stream, samples.get(), sampleCount * sizeof(int16_t));
+	if (sampleCount < requested_samples)
+		SDL_FlushAudioStream(stream);
 }
 #endif
 

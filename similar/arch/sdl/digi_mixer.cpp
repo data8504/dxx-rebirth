@@ -20,8 +20,8 @@
 #include <stdio.h>
 #include <string.h>
 
-#include <SDL.h>
-#include <SDL_mixer.h>
+#include <SDL3/SDL.h>
+#include <SDL3_mixer/SDL_mixer.h>
 
 #include "pstypes.h"
 #include "dxxerror.h"
@@ -52,13 +52,7 @@ namespace dcx {
 
 namespace {
 
-#if !((defined(__APPLE__) && defined(__MACH__)) || defined(macintosh))
-constexpr std::size_t SOUND_BUFFER_SIZE{2048};
-#else
-constexpr std::size_t SOUND_BUFFER_SIZE{1024};
-#endif
-
-constexpr uint16_t MIX_OUTPUT_FORMAT{AUDIO_S16};
+constexpr SDL_AudioFormat MIX_OUTPUT_FORMAT{SDL_AUDIO_S16};
 constexpr int MIX_OUTPUT_CHANNELS{2};
 
 /* In mixer mode, always request 44Khz.  This guarantees a need to upsample,
@@ -70,28 +64,31 @@ constexpr int MIX_OUTPUT_CHANNELS{2};
  * straightforward.
  */
 constexpr auto digi_sample_rate{underlying_value(sound_sample_rate::_44k)};
-enumerated_bitset<64, sound_channel> channels;
+MIX_Mixer *mixer;
+MIX_Track *music_track;
+enumerated_array<MIX_Track *, 64, sound_channel> tracks;
+enumerated_array<float, 64, sound_channel> channel_volume;
+float effects_volume{1};
 
 /* channel management */
-static sound_channel digi_mixer_find_channel(const enumerated_bitset<64, sound_channel> &channels, const unsigned max_channels)
+static sound_channel digi_mixer_find_channel(const unsigned max_channels)
 {
 	uint8_t i{};
 	for (; i < max_channels; ++i)
-		if (!channels[(sound_channel{i})])
+		if (!MIX_TrackPlaying(tracks[sound_channel{i}]))
 			break;
 	return sound_channel{i};
 }
 
-struct RAIIMix_Chunk : public Mix_Chunk
+struct mixer_audio_deleter
 {
-	constexpr RAIIMix_Chunk() : Mix_Chunk{} {}
-	~RAIIMix_Chunk()
+	static void operator()(MIX_Audio *const audio)
 	{
-		delete [] abuf;
+		MIX_DestroyAudio(audio);
 	}
-	RAIIMix_Chunk(const RAIIMix_Chunk &) = delete;
-	RAIIMix_Chunk &operator=(const RAIIMix_Chunk &) = delete;
 };
+using mixer_audio_ptr = std::unique_ptr<MIX_Audio, mixer_audio_deleter>;
+static std::array<mixer_audio_ptr, ::dsx::MAX_SOUNDS> SoundChunks;
 
 static uint8_t fix2byte(const fix f)
 {
@@ -105,15 +102,12 @@ static uint8_t fix2byte(const fix f)
 }
 
 uint8_t digi_initialised;
-unsigned digi_mixer_max_channels = std::size(channels);
-
-void digi_mixer_free_channel(const int channel_num)
-{
-	if (const auto o = channels.valid_index(channel_num))
-		channels.reset(*o);
-}
+constexpr unsigned digi_mixer_max_channels = std::size(tracks);
 
 }
+
+MIX_Mixer *digi_mixer_get_mixer() { return mixer; }
+MIX_Track *digi_mixer_get_music_track() { return music_track; }
 
 /* Initialise audio */
 int digi_mixer_init()
@@ -121,20 +115,36 @@ int digi_mixer_init()
 #if MIX_DIGI_DEBUG
 	con_printf(CON_DEBUG, "digi_init %u (SDL_Mixer)", MAX_SOUNDS.value);
 #endif
-	if (SDL_InitSubSystem(SDL_INIT_AUDIO) < 0) Error("SDL audio initialisation failed: %s.", SDL_GetError());
-
-	if (Mix_OpenAudioDevice(digi_sample_rate, MIX_OUTPUT_FORMAT, MIX_OUTPUT_CHANNELS, SOUND_BUFFER_SIZE, NULL, 0))
+	if (!SDL_InitSubSystem(SDL_INIT_AUDIO)) Error("SDL audio initialisation failed: %s.", SDL_GetError());
+	if (!MIX_Init())
+		return 1;
+	const SDL_AudioSpec spec{MIX_OUTPUT_FORMAT, MIX_OUTPUT_CHANNELS, digi_sample_rate};
+	mixer = MIX_CreateMixerDevice(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec);
+	if (!mixer)
 	{
 		//edited on 10/05/98 by Matt Mueller - should keep running, just with no sound.
 		con_printf(CON_URGENT,"\nError: Couldn't open audio: %s", SDL_GetError());
 		CGameArg.SndNoSound = 1;
+		MIX_Quit();
 		return 1;
 	}
 
-	digi_mixer_max_channels = Mix_AllocateChannels(digi_mixer_max_channels);
-	channels.reset();
-	Mix_Pause(0);
-	Mix_ChannelFinished(digi_mixer_free_channel);
+	/* The fixed effects pool stays separate from music and movie tracks. */
+	for (auto &track : tracks)
+		if (!(track = MIX_CreateTrack(mixer)))
+		{
+			MIX_DestroyMixer(std::exchange(mixer, nullptr));
+			tracks = {};
+			MIX_Quit();
+			return 1;
+		}
+	if (!(music_track = MIX_CreateTrack(mixer)))
+	{
+		MIX_DestroyMixer(std::exchange(mixer, nullptr));
+		tracks = {};
+		MIX_Quit();
+		return 1;
+	}
 
 	digi_initialised = 1;
 
@@ -149,8 +159,14 @@ void digi_mixer_close() {
 	con_printf(CON_DEBUG, "digi_close (SDL_Mixer)");
 #endif
 	if (!digi_initialised) return;
+	mix_free_music();
 	digi_initialised = 0;
-	Mix_CloseAudio();
+	MIX_DestroyMixer(std::exchange(mixer, nullptr));
+	music_track = nullptr;
+	tracks = {};
+	for (auto &audio : SoundChunks)
+		audio.reset();
+	MIX_Quit();
 }
 
 namespace {
@@ -357,50 +373,20 @@ namespace sdl_native {
 static unique_span<uint8_t> convert_audio(const sound_effect sound_idx, const std::span<const uint8_t> data, const sound_sample_rate ssfreq)
 {
 	const int freq{underlying_value(ssfreq)};
-	SDL_AudioCVT cvt;
-	if (SDL_BuildAudioCVT(&cvt, AUDIO_U8, 1, freq, MIX_OUTPUT_FORMAT, MIX_OUTPUT_CHANNELS, digi_sample_rate) == -1)
+	const SDL_AudioSpec source{SDL_AUDIO_U8, 1, freq};
+	const SDL_AudioSpec destination{MIX_OUTPUT_FORMAT, MIX_OUTPUT_CHANNELS, digi_sample_rate};
+	Uint8 *converted{};
+	int length{};
+	if (!SDL_ConvertAudioSamples(&source, data.data(), data.size(), &destination, &converted, &length))
 	{
-		con_printf(CON_URGENT, "%s:%u: SDL_BuildAudioCVT failed: sound=%u dlen=%" DXX_PRI_size_type " freq=%i out_format=%i out_channels=%i out_freq=%i", __FILE__, __LINE__, sound_idx, data.size(), freq, MIX_OUTPUT_FORMAT, MIX_OUTPUT_CHANNELS, digi_sample_rate);
+		con_printf(CON_URGENT, "SDL_ConvertAudioSamples failed for sound %u: %s", sound_idx, SDL_GetError());
 		return {};
 	}
-	if (cvt.len_mult < 1)
-	{
-		con_printf(CON_URGENT, "%s:%u: SDL_BuildAudioCVT requested invalid length multiplier: sound=%u dlen=%" DXX_PRI_size_type " freq=%i out_format=%i out_channels=%i out_freq=%i len_mult=%i", __FILE__, __LINE__, sound_idx, data.size(), freq, MIX_OUTPUT_FORMAT, MIX_OUTPUT_CHANNELS, digi_sample_rate, cvt.len_mult);
-		return {};
-	}
-	const std::size_t workingSize = data.size() * cvt.len_mult;
-	auto cvtbuf = std::make_unique<uint8_t[]>(workingSize);
-	cvt.buf = cvtbuf.get();
-	cvt.len = data.size();
-	memcpy(cvt.buf, data.data(), data.size());
-	if (SDL_ConvertAudio(&cvt))
-	{
-		con_printf(CON_URGENT, "%s:%u: SDL_ConvertAudio failed: sound=%u dlen=%" DXX_PRI_size_type " freq=%i out_format=%i out_channels=%i out_freq=%i", __FILE__, __LINE__, sound_idx, data.size(), freq, MIX_OUTPUT_FORMAT, MIX_OUTPUT_CHANNELS, digi_sample_rate);
-		return {};
-	}
-	if (const std::size_t convertedSize = cvt.len_cvt; convertedSize < workingSize)
-	{
-		/* The final sound required less space to store than
-		 * SDL_BuildAudioCVT requested for an intermediate buffer.
-		 * Allocate a new buffer just large enough for the final sound,
-		 * copy the staging buffer into it, and use that new buffer as the
-		 * long term storage.
-		 */
-		auto outbuf = std::make_unique<uint8_t[]>(convertedSize);
-		memcpy(outbuf.get(), cvt.buf, convertedSize);
-		return {std::move(outbuf), convertedSize};
-	}
-	else
-	{
-		/* The final sound required as much (or more) space than was
-		 * requested.  If it required more, there was likely memory
-		 * corruption, and that would be a bug in SDL audio conversion.
-		 * Therefore, assume that this path is for when the requested space
-		 * was exactly correct.  No memory can be recovered with an extra
-		 * copy, so transfer the staging buffer to the output structure.
-		 */
-		return {std::move(cvtbuf), convertedSize};
-	}
+	/* SDL allocates with SDL_malloc; unique_span owns a new[] buffer. */
+	unique_span<uint8_t> result{static_cast<std::size_t>(length)};
+	memcpy(result.get(), converted, length);
+	SDL_free(converted);
+	return result;
 }
 
 }
@@ -414,13 +400,11 @@ namespace dsx {
 
 namespace {
 
-static std::array<RAIIMix_Chunk, MAX_SOUNDS> SoundChunks;
-
 /*
  * Play-time conversion. Performs output conversion only once per sound effect used.
  * Once the sound sample has been converted, it is cached in SoundChunks[]
  */
-static void mixdigi_convert_sound(const sound_effect sound_idx, RAIIMix_Chunk &sci, const digi_sound &gs, const sound_sample_rate freq)
+static void mixdigi_convert_sound(const sound_effect sound_idx, mixer_audio_ptr &sci, const digi_sound &gs, const sound_sample_rate freq)
 {
 	const auto data = gs.span();
 	if (data.empty())
@@ -488,16 +472,16 @@ static void mixdigi_convert_sound(const sound_effect sound_idx, RAIIMix_Chunk &s
 			break;
 #endif
 	}
-	sci.alen = cvtbuf.size();
-	sci.abuf = cvtbuf.release();
-	sci.allocated = 1;
-	sci.volume = 128; // Max volume = 128
+	if (!cvtbuf.size())
+		return;
+	const SDL_AudioSpec spec{MIX_OUTPUT_FORMAT, MIX_OUTPUT_CHANNELS, digi_sample_rate};
+	sci.reset(MIX_LoadRawAudio(mixer, cvtbuf.get(), cvtbuf.size(), &spec));
 }
 
-static Mix_Chunk &mixdigi_convert_sound(const sound_effect i)
+static MIX_Audio *mixdigi_convert_sound(const sound_effect i)
 {
 	auto &sci = SoundChunks[i];
-	if (!sci.abuf)
+	if (!sci)
 	{
 		auto &gs = GameSounds[i];
 #if DXX_BUILD_DESCENT == 1
@@ -508,7 +492,7 @@ static Mix_Chunk &mixdigi_convert_sound(const sound_effect i)
 		//proceed only if not converted yet
 		mixdigi_convert_sound(i, sci, gs, freq);
 	}
-	return sci;
+	return sci.get();
 }
 
 }
@@ -523,14 +507,16 @@ sound_channel digi_mixer_start_sound(sound_effect soundnum, const fix volume, co
 		return sound_channel::None;
 
 	const unsigned max_channels = digi_mixer_max_channels;
-	if (max_channels > channels.size())
+	if (max_channels > tracks.size())
 		return sound_channel::None;
-	const auto c = digi_mixer_find_channel(channels, max_channels);
+	const auto c = digi_mixer_find_channel(max_channels);
 	const auto channel = underlying_value(c);
 	if (channel >= max_channels)
 		return sound_channel::None;
 
-	mixdigi_convert_sound(soundnum);
+	const auto audio = mixdigi_convert_sound(soundnum);
+	if (!audio)
+		return sound_channel::None;
 
 	const int mix_pan = fix2byte(static_cast<fix>(pan));
 #if MIX_DIGI_DEBUG
@@ -540,11 +526,18 @@ sound_channel digi_mixer_start_sound(sound_effect soundnum, const fix volume, co
 	(void)loop_end;
 #endif
 
-	const int mix_loop = looping * -1;
-	Mix_PlayChannel(channel, &(SoundChunks[soundnum]), mix_loop);
-	Mix_SetPanning(channel, 255-mix_pan, mix_pan);
-	Mix_SetDistance(channel, UINT8_MAX - fix2byte(volume));
-	channels.set(c);
+	const auto track = tracks[c];
+	MIX_SetTrackAudio(track, audio);
+	const MIX_StereoGains gains{(255 - mix_pan) / 255.f, mix_pan / 255.f};
+	MIX_SetTrackStereo(track, &gains);
+	channel_volume[c] = fix2byte(volume) / 255.f;
+	MIX_SetTrackGain(track, channel_volume[c] * effects_volume);
+	const auto options = SDL_CreateProperties();
+	SDL_SetNumberProperty(options, MIX_PROP_PLAY_LOOPS_NUMBER, looping ? -1 : 0);
+	const auto played = MIX_PlayTrack(track, options);
+	SDL_DestroyProperties(options);
+	if (!played)
+		return sound_channel::None;
 	return c;
 }
 
@@ -555,13 +548,16 @@ namespace dcx {
 void digi_mixer_set_channel_volume(const sound_channel channel, const int volume)
 {
 	if (!digi_initialised) return;
-	Mix_SetDistance(underlying_value(channel), UINT8_MAX - fix2byte(volume));
+	channel_volume[channel] = fix2byte(volume) / 255.f;
+	MIX_SetTrackGain(tracks[channel], channel_volume[channel] * effects_volume);
 }
 
 void digi_mixer_set_channel_pan(const sound_channel channel, const sound_pan pan)
 {
 	int mix_pan = fix2byte(static_cast<fix>(pan));
-	Mix_SetPanning(underlying_value(channel), 255 - mix_pan, mix_pan);
+	if (!digi_initialised) return;
+	const MIX_StereoGains gains{(255 - mix_pan) / 255.f, mix_pan / 255.f};
+	MIX_SetTrackStereo(tracks[channel], &gains);
 }
 
 void digi_mixer_stop_sound(const sound_channel channel)
@@ -571,14 +567,13 @@ void digi_mixer_stop_sound(const sound_channel channel)
 #if MIX_DIGI_DEBUG
 	con_printf(CON_DEBUG, "%s:%u: %d", __FUNCTION__, __LINE__, c);
 #endif
-	Mix_HaltChannel(c);
-	channels.reset(channel);
+	(void)c;
+	MIX_StopTrack(tracks[channel], 0);
 }
 
 void digi_mixer_end_sound(const sound_channel channel)
 {
 	digi_mixer_stop_sound(channel);
-	channels.reset(channel);
 }
 
 void digi_mixer_set_digi_volume( int dvolume )
@@ -590,18 +585,24 @@ void digi_mixer_set_digi_volume( int dvolume )
 	*/
 	digi_volume = dvolume;
 	if (!digi_initialised) return;
-	Mix_Volume(-1, fix2byte(fixmul(dvolume, dvolume)));
+	effects_volume = std::min<unsigned>(128, fix2byte(fixmul(dvolume, dvolume))) / 128.f;
+	for (uint8_t i = 0; i != tracks.size(); ++i)
+	{
+		const sound_channel channel{i};
+		MIX_SetTrackGain(tracks[channel], channel_volume[channel] * effects_volume);
+	}
 }
 
 int digi_mixer_is_channel_playing(const sound_channel c)
 {
-	return channels[c];
+	return digi_initialised && MIX_TrackPlaying(tracks[c]);
 }
 
 void digi_mixer_stop_all_channels()
 {
-	channels = {};
-	Mix_HaltChannel(-1);
+	if (!digi_initialised) return;
+	for (const auto track : tracks)
+		MIX_StopTrack(track, 0);
 }
 
 }
