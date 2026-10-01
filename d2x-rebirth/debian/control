@@ -5,7 +5,7 @@ Maintainer: zico <zico@dxx-rebirth.com>
 Standards-Version: 3.6.1
 
 Package: d2x-rebirth
-Build-Depends: libsdl1.2-dev, libsdl-mixer1.2-dev, libphysfs-dev, scons
+Build-Depends: libsdl3-dev (>= 3.2), libsdl3-image-dev (>= 3.2), libsdl3-mixer-dev (>= 3.2), libphysfs-dev, scons
 Recommends: timidity, freepats
 Architecture: any
 Depends: ${shlibs:Depends}
@@ -16,4 +16,3 @@ Description: Port of the 1996 classic game Descent 2: Counterstrike!
  .
  For more information please visit the web site:
  https://www.dxx-rebirth.com/
-

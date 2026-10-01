@@ -3,9 +3,9 @@ tap "homebrew/core"
 
 # Install dependencies
 brew "scons"
-brew "sdl2"
-brew "sdl2_image"
-brew "sdl2_mixer"
+brew "sdl3"
+brew "sdl3_image"
+brew "sdl3_mixer"
 brew "libpng"
 brew "jpeg"
 brew "physfs"

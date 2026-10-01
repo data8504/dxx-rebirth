@@ -24,7 +24,7 @@ Url: https://www.dxx-rebirth.com
 Source: %{name}_v%{version}-src.tar.gz
 
 # SDL libraries are required in both the SDL-only build and the OpenGL-enabled build.
-BuildRequires: gcc-c++ libSDL-devel libSDL_mixer-devel libphysfs-devel scons
+BuildRequires: gcc-c++ SDL3-devel SDL3_image-devel SDL3_mixer-devel libphysfs-devel scons
 
 # If _datarootdir is unset, pretend it has the value of _prefix/share.
 # Set _dxx_base_sharepath to _datarootdir/games
