@@ -16,12 +16,15 @@
 
 Summary: Source port of Descent 1 and Descent 2
 Name: dxx-rebirth
-Version: 0.60_beta2_pre20190815
+Version: 0.61_sdl3_snapshot20261001
 Release: 1
 License: DXX-Rebirth
 Group: Games/Arcade
 Url: https://www.dxx-rebirth.com
 Source: %{name}_v%{version}-src.tar.gz
+# Generate the local source archive expected by this recipe:
+# git archive --prefix=dxx-rebirth_v0.61_sdl3_snapshot20261001-src/ migration/sdl3-only |
+#   gzip > dxx-rebirth_v0.61_sdl3_snapshot20261001-src.tar.gz
 
 # SDL libraries are required in both the SDL-only build and the OpenGL-enabled build.
 BuildRequires: gcc-c++ SDL3-devel SDL3_image-devel SDL3_mixer-devel libphysfs-devel scons
