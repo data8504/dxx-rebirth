@@ -28,6 +28,7 @@ COPYRIGHT 1993-1999 PARALLAX SOFTWARE CORPORATION.  ALL RIGHTS RESERVED.
 #include <numeric>
 #include <stdlib.h>
 #include <stdio.h>
+#include <cinttypes>
 #include <string.h>	//	for memset()
 
 #include "u_mem.h"

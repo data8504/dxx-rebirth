@@ -27,7 +27,7 @@ COPYRIGHT 1993-1999 PARALLAX SOFTWARE CORPORATION.  ALL RIGHTS RESERVED.
 #include <stdio.h>
 #include <string.h>
 #include <ranges>
-#include <SDL.h>
+#include <SDL3/SDL.h>
 
 #include "digi.h"
 #include "menu.h"
@@ -1250,10 +1250,9 @@ window_event_result screen_resolution_menu::event_handler(const d_event &event)
 
 void screen_resolution_menu::handle_close_event() const
 {
-	// check which resolution field was selected
-	{
-		apply_custom_resolution();
-	}
+	if (m[convert_fixed_field_to_ni(fixed_field_index::opt_checkbox_fullscreen)].value != gr_check_fullscreen())
+		gr_toggle_fullscreen();
+	apply_custom_resolution();
 }
 
 

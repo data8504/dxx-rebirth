@@ -5,11 +5,11 @@
  * terms and a link to the Git history.
  */
 /*
- *  Display an error or warning messagebox using the SDL2 messagebox function.
+ *  Display an error or warning messagebox using the SDL messagebox function.
  *
  */
 
-#include <SDL.h>
+#include <SDL3/SDL.h>
 #include "window.h"
 #include "event.h"
 #include "messagebox.h"
