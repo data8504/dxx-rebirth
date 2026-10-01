@@ -72,10 +72,10 @@ struct movie_pause_window : window
 
 }
 
-unsigned MovieFileRead(SDL_RWops *const handle, const std::span<uint8_t> buf)
+unsigned MovieFileRead(SDL_IOStream *const handle, const std::span<uint8_t> buf)
 {
 	const auto count{buf.size()};
-	const auto numread{SDL_RWread(handle, buf.data(), 1, count)};
+	const auto numread{SDL_ReadIO(handle, buf.data(), count)};
 	return (numread == count);
 }
 
@@ -301,7 +301,7 @@ window_event_result movie::event_handler(const d_event &event)
 		case event_type::joystick_button_down:
 		{
 			const auto btn = event_joystick_get_button(event);
-			if (btn == SDL_CONTROLLER_BUTTON_B || btn == SDL_CONTROLLER_BUTTON_BACK)
+			if (btn == SDL_GAMEPAD_BUTTON_EAST || btn == SDL_GAMEPAD_BUTTON_BACK)
 				return window_event_result::close;
 			break;
 		}
