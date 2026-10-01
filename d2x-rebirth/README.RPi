@@ -1,92 +1,16 @@
 DXX-Rebirth for the Raspberry Pi
 
-BUILDING:
-=========
-Make sure you have installed (the development packages of) all of the required
-libraries (libsdl, libphysfs, ...). For building, you will also need scons (and
-for that, python).  Most linux distributions should contain all the required
-packages, debain/raspbian do so for sure. Using a distribution with hardfp ABI
-is recommended for optimal performance. I developed/tested this on a raspbian
-wheezy. 
+Use a current distribution with Mesa graphics, SDL3 (3.2 or later),
+SDL3_image, SDL3_mixer, PhysicsFS, SCons and a C++23 compiler.
+See ../Documentation/building.md for dependency and compiler requirements.
 
-Multiple build configurations are possible for the Pi, depending on whether you
-wish to use the legacy vendor graphics driver or experimental Mesa VC4 driver.
+Build with:
+    scons raspberrypi=mesa
 
-To build against the legacy vendor graphics driver (recommended for most users):
+SDL3 owns the window, input and GL context. X11, Wayland and KMSDRM availability
+depends on the SDL3 build and the system's graphics/session configuration.
+OpenGL ES can be selected with opengles=1 where GLES1 development headers
+and libraries are available.
 
-scons raspberrypi=1
-
-If you're using a firmware release older than 1.20160921-1, it's highly
-recommended that you upgrade, but if that's not an option, you must manually
-specify the original GLES/EGL library names:
-
-scons raspberrypi=1 egl_lib=EGL opengles_lib=GLESv2
-
-This assumes that the development files (libs/headers) for the VideoCore APIs 
-are located in /opt/vc. You can use rpi_vc_path to specify another location.
-
-If you wish to build for Raspberry Pi 4B or the experimental Mesa VC4 driver:
-
-scons raspberrypi=mesa
-
-This will select the GL interface with SDL2 by default, but you can select
-GLES & SDL1 by adding "opengles=1 sdl2=0". Keep in mind that as of Raspbian buster,
-the Mesa packages no longer ship with GLESv1 headers, making GLES builds impossible.
-Additionally, SDL2 is highly recommended, as its KMSDRM video driver is the only
-way to run DXX-Rebirth on a Raspberry Pi 4B outside of an Xorg session.
-
-For all other options, check "scons -h".
-
-Currently, there is no direct support for crosscompiling.
-
-RUNNING:
-========
-The game should run with X11 or directly on the console (libsdl with fbcon/
-directfb driver). 
-
-NOTE: *** PLEASE USE THE 128/128MB MEMORY SPLIT *** 
-
-The game might completely freeze or diplay messed up graphics in
-out-of-(GPU)-memory situations. If you want to run it with the 192/64MB memory
-split, you might be able to do so by setting the texture filter to "NONE" in
-the graphics options. (This disables mip mapping and reduces the memory
-requirements of the textures. Note that the "BILINEAR" filter still uses
-mipmapping). 
-
-If the game freezes during the "Prepare for Descent" phase when loading a
-level, you probably do not have enough GPU memory.
-
-RUNNING ON X11:
-===============
-Recommendation is to use fullscreen mode. However, you can run in "windowed"
-mode, too. The game will open an X11 window in that case, and the actual game
-output will be an overlay of the same size, but not at the same position, and
-always on top (and completely out of control of the X Server). Game input is
-still handled via the X11 window, so make sure it has the focus.
-
-RUNNING ON THE CONSOLE:
-=======================
-libsdl supports running directly on the Linux console. While the SDL Video mode
-is technically not required on the RPi, we still have to use it to get all the
-input events we need. libsdl seems to have problems on the RPi, I always get a
-crash in libsdl when trying to change the resolution. To avoid such crashes,
-the code will try to detect if it is running on the console and activate a hack
-to prevent switching the resolution. Note that the in-game framebuffer
-resolution can still be changed, the RPi will just scale the output to the
-initial resolution (in "fullscreen" mode). "Windowed" mode will just result in
-unscaled output. As libsdl creates a black screen, you will not be able to have
-the "Window" on top of the linux console output :(
-
-NOTE: You might need root privileges to use the libsdl fbcon/directfb drivers.
-
-BUGS, SUGGESTIONS AND FEEDBACK:
-===============================
-
-The RPi patch was written by:
-	Marcel Heinz <derhass@arcor.de>
-
-Send bug reports, suggestions and other feedback regarding the operation
-on the RPi to me via email.
-
-						-- derhass, 2012-08-09
-
+raspberrypi=mesa is the supported Raspberry Pi graphics configuration.
+raspberrypi=1 and the DispmanX/VideoCore overlay are not supported.

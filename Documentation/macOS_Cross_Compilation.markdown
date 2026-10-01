@@ -45,7 +45,7 @@ Note that if you have OpenSSL 3.0.0 through 3.0.6, you'll need to make a change 
 
 The following command assumes the osxcross `bin` directory is in your path.  If that's not the case, you'll need to explicitly specify the path to it.
 
-`osxcross-macports install libsdl2 libsdl2_image libsdl2_mixer libpng jpeg physfs`
+`osxcross-macports install libsdl3 libsdl3_image libsdl3_mixer libpng jpeg physfs`
 
 ### Installing scons
 
