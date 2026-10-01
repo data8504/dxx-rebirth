@@ -33,31 +33,30 @@
 #else
 #include <physfs/physfs.h>
 #endif
-#include <SDL.h>
+#include <SDL3/SDL_iostream.h>
 
 #include <memory>
 #include <utility>
 
 struct RWops_delete
 {
-	static void operator()(SDL_RWops *o)
+	static void operator()(SDL_IOStream *o)
 	{
-		SDL_RWclose(o);
+		SDL_CloseIO(o);
 	}
 };
 
-typedef std::unique_ptr<SDL_RWops, RWops_delete> RWops_ptr;
+typedef std::unique_ptr<SDL_IOStream, RWops_delete> RWops_ptr;
 
 /**
  * Open a platform-independent filename for reading, and make it accessible
- *  via an SDL_RWops structure. The file will be closed in PhysicsFS when the
- *  RWops is closed. PhysicsFS should be configured to your liking before
+ *  via an SDL_IOStream. The file will be closed in PhysicsFS when the
+ *  stream is closed. PhysicsFS should be configured to your liking before
  *  opening files through this method.
  *
  *   @param filename File to open in platform-independent notation.
- *  @return A pair containing: (1) valid SDL_RWops structure on success or nullptr on error and (2) PHYSFS_ERR_OK on success or a specific error code on error.
+ *  @return A pair containing: (1) valid SDL_IOStream on success or nullptr on error and (2) PHYSFS_ERR_OK on success or a specific error code on error.
  */
 std::pair<RWops_ptr, PHYSFS_ErrorCode> PHYSFSRWOPS_openRead(const char *fname);
 
 /* end of physfsrwops.h ... */
-
