@@ -15,7 +15,7 @@
 #include <string.h>
 #include <limits.h>
 #include <math.h>
-#include <SDL.h>
+#include <SDL3/SDL.h>
 #include "gr.h"
 #include "grdef.h"
 #include "palette.h"
@@ -37,97 +37,68 @@ using std::min;
 
 namespace dcx {
 
-static int sdl_video_flags = SDL_SWSURFACE | SDL_HWPALETTE | SDL_DOUBLEBUF;
-static SDL_Surface *screen, *canvas;
+SDL_Window *g_pRebirthSDLMainWindow;
+static SDL_Surface *canvas;
+static SDL_WindowFlags sdl_video_flags;
 static int gr_installed;
 
 void gr_flip()
 {
-	SDL_BlitSurface(canvas, nullptr, screen, nullptr);
-	SDL_Flip(screen);
-}
-
-// returns possible (fullscreen) resolutions if any.
-uint_fast32_t gr_list_modes(std::array<screen_mode, 50> &gsmodes)
-{
-	int modesnum{0};
-	int sdl_check_flags = sdl_video_flags;
-
-	sdl_check_flags |= SDL_FULLSCREEN; // always use Fullscreen as lead.
-
-	SDL_Rect **const modes{SDL_ListModes(NULL, sdl_check_flags)};
-	if (modes == nullptr) // check if we get any modes - if not, return 0
-		return 0;
-
-	if (modes == reinterpret_cast<SDL_Rect**>(-1))
-	{
-		return 0; // can obviously use any resolution... strange!
-	}
-	else
-	{
-		for (int i = 0; modes[i]; ++i)
-		{
-			if (modes[i]->w > 0xFFF0 || modes[i]->h > 0xFFF0 // resolutions saved in 32bits. so skip bigger ones (unrealistic in 2010) (kreatordxx - made 0xFFF0 to kill warning)
-				|| modes[i]->w < 320 || modes[i]->h < 200) // also skip everything smaller than 320x200
-				continue;
-			gsmodes[modesnum].width = modes[i]->w;
-			gsmodes[modesnum].height = modes[i]->h;
-			modesnum++;
-			if (modesnum >= gsmodes.size()) // that really seems to be enough big boy.
-				break;
-		}
-		return modesnum;
-	}
+	// The window surface can change when entering fullscreen or resizing.
+	const auto screen = SDL_GetWindowSurface(g_pRebirthSDLMainWindow);
+	if (!screen || !SDL_BlitSurfaceScaled(canvas, nullptr, screen, nullptr, SDL_SCALEMODE_NEAREST) ||
+		!SDL_UpdateWindowSurface(g_pRebirthSDLMainWindow))
+		Error("Could not update software display: %s", SDL_GetError());
 }
 
 }
 
 namespace dsx {
 
+void gr_set_mode_from_window_size()
+{
+	// Software presentation scales the fixed-resolution indexed canvas to
+	// the current window surface in gr_flip; output-size changes need no
+	// canvas reallocation.
+}
+
 int gr_set_mode(screen_mode mode)
 {
-	screen=NULL;
-
-	SDL_WM_SetCaption(DESCENT_VERSION, DXX_SDL_WINDOW_CAPTION);
-	SDL_WM_SetIcon( SDL_LoadBMP( DXX_SDL_WINDOW_ICON_BITMAP ), NULL );
-
-	const auto sdl_video_flags = ::sdl_video_flags;
-	const auto DbgBpp{CGameArg.DbgBpp};
-	if(SDL_VideoModeOK(SM_W(mode), SM_H(mode), DbgBpp, sdl_video_flags))
-	{
-	}
-	else
-	{
-		con_printf(CON_URGENT,"Cannot set %hux%hu. Fallback to 640x480", SM_W(mode), SM_H(mode));
-		mode.width = 640;
-		mode.height = 480;
-		Game_screen_mode = mode;
-	}
 	const unsigned w = SM_W(mode), h = SM_H(mode);
-	screen = SDL_SetVideoMode(w, h, DbgBpp, sdl_video_flags);
-
-	if (screen == NULL)
+	if (!g_pRebirthSDLMainWindow)
 	{
-		Error("Could not set %dx%dx%d video mode\n", w, h, DbgBpp);
-		exit(1);
+		g_pRebirthSDLMainWindow = SDL_CreateWindow(DESCENT_VERSION, w, h, sdl_video_flags);
+		if (!g_pRebirthSDLMainWindow)
+			Error("Could not create software display: %s", SDL_GetError());
+		SDL_StartTextInput(g_pRebirthSDLMainWindow);
+		if (const auto icon = SDL_LoadBMP(DXX_SDL_WINDOW_ICON_BITMAP))
+		{
+			SDL_SetWindowIcon(g_pRebirthSDLMainWindow, icon);
+			SDL_DestroySurface(icon);
+		}
+		SDL_SetWindowSurfaceVSync(g_pRebirthSDLMainWindow, CGameCfg.VSync ? 1 : 0);
+	}
+	else if (!(SDL_GetWindowFlags(g_pRebirthSDLMainWindow) & SDL_WINDOW_FULLSCREEN))
+	{
+		if (!SDL_SetWindowSize(g_pRebirthSDLMainWindow, w, h))
+			Error("Could not resize software display: %s", SDL_GetError());
+		SDL_SyncWindow(g_pRebirthSDLMainWindow);
 	}
 
-	canvas = SDL_CreateRGBSurface(sdl_video_flags, w, h, 8, 0, 0, 0, 0);
-	if (canvas == NULL)
-	{
-		Error("Could not create canvas surface\n");
-		exit(1);
-	}
-
+	const auto new_canvas = SDL_CreateSurface(w, h, SDL_PIXELFORMAT_INDEX8);
+	if (!new_canvas || !SDL_CreateSurfacePalette(new_canvas))
+		Error("Could not create indexed canvas: %s", SDL_GetError());
 	*grd_curscreen = {};
+	canvas = new_canvas;
 	grd_curscreen->sdl_surface = RAII_SDL_Surface(canvas);
 	grd_curscreen->set_screen_width_height(w, h);
 	grd_curscreen->sc_aspect = fixdiv(grd_curscreen->get_screen_width() * CGameCfg.AspectX, grd_curscreen->get_screen_height() * CGameCfg.AspectY);
 	gr_init_canvas(grd_curscreen->sc_canvas, reinterpret_cast<unsigned char *>(canvas->pixels), bm_mode::linear, w, h);
+	grd_curscreen->sc_canvas.cv_bitmap.bm_rowsize = canvas->pitch;
 	window_update_canvases();
 	gr_set_default_canvas();
 
-	SDL_ShowCursor(0);
+	SDL_HideCursor();
 	gamefont_choose_game_font(w,h);
 	gr_palette_load(gr_palette);
 	gr_remap_color_fonts();
@@ -141,16 +112,20 @@ namespace dcx {
 
 int gr_check_fullscreen(void)
 {
-	return !!(sdl_video_flags & SDL_FULLSCREEN);
+	return g_pRebirthSDLMainWindow && (SDL_GetWindowFlags(g_pRebirthSDLMainWindow) & SDL_WINDOW_FULLSCREEN);
 }
 
 void gr_toggle_fullscreen()
 {
-	sdl_video_flags ^= SDL_FULLSCREEN;
-	const int WindowMode = !(sdl_video_flags & SDL_FULLSCREEN);
-	CGameCfg.WindowMode = WindowMode;
+	const auto fullscreen = gr_check_fullscreen();
+	if (!SDL_SetWindowFullscreen(g_pRebirthSDLMainWindow, !fullscreen))
+	{
+		con_printf(CON_URGENT, "Could not change fullscreen mode: %s", SDL_GetError());
+		return;
+	}
+	SDL_SyncWindow(g_pRebirthSDLMainWindow);
+	CGameCfg.WindowMode = fullscreen;
 	gr_remap_color_fonts();
-	SDL_WM_ToggleFullScreen(screen);
 }
 
 }
@@ -163,7 +138,7 @@ int gr_init()
 	if (gr_installed==1)
 		return -1;
 
-	if (SDL_Init(SDL_INIT_VIDEO) < 0)
+	if (!SDL_Init(SDL_INIT_VIDEO))
 	{
 		Error("SDL library video initialisation failed: %s.",SDL_GetError());
 	}
@@ -171,23 +146,17 @@ int gr_init()
 	grd_curscreen = std::make_unique<grs_screen>();
 
 	if (!CGameCfg.WindowMode && !CGameArg.SysWindow)
-		sdl_video_flags|=SDL_FULLSCREEN;
+		sdl_video_flags|=SDL_WINDOW_FULLSCREEN;
 
 	if (CGameArg.SysNoBorders)
-		sdl_video_flags|=SDL_NOFRAME;
-
-	if (CGameArg.DbgSdlHWSurface)
-		sdl_video_flags|=SDL_HWSURFACE;
-
-	if (CGameArg.DbgSdlASyncBlit)
-		sdl_video_flags|=SDL_ASYNCBLIT;
+		sdl_video_flags|=SDL_WINDOW_BORDERLESS;
 
 	// Set the mode.
 	grd_curscreen->sc_canvas.cv_fade_level = GR_FADE_OFF;
 	grd_curscreen->sc_canvas.cv_font = NULL;
 	grd_curscreen->sc_canvas.cv_font_fg_color = 0;
 	grd_curscreen->sc_canvas.cv_font_bg_color = 0;
-	gr_set_current_canvas( &grd_curscreen->sc_canvas );
+	gr_set_current_canvas(grd_curscreen->sc_canvas);
 
 	gr_installed = 1;
 
@@ -200,7 +169,11 @@ void gr_close()
 	{
 		gr_installed = 0;
 		grd_curscreen.reset();
-		SDL_ShowCursor(1);
+		grd_curcanv = nullptr;
+		canvas = nullptr;
+		SDL_DestroyWindow(g_pRebirthSDLMainWindow);
+		g_pRebirthSDLMainWindow = nullptr;
+		SDL_ShowCursor();
 	}
 }
 
@@ -223,7 +196,7 @@ void gr_palette_step_up( int r, int g, int b )
 	last_g = g;
 	last_b = b;
 
-	palette = canvas->format->palette;
+	palette = SDL_GetSurfacePalette(canvas);
 
 	if (palette == NULL)
 		return; // Display is not palettised
@@ -237,24 +210,25 @@ void gr_palette_step_up( int r, int g, int b )
 		colors[i].g = std::clamp(ig, 0, 63) * 4;
 		const auto ib = static_cast<int>(p[i].b) + b + gr_palette_gamma;
 		colors[i].b = std::clamp(ib, 0, 63) * 4;
+		colors[i].a = SDL_ALPHA_OPAQUE;
 	}
-	SDL_SetColors(canvas, colors.data(), 0, colors.size());
+	SDL_SetPaletteColors(palette, colors.data(), 0, colors.size());
 }
 
-void gr_palette_load( palette_array_t &pal )
+void gr_palette_load(const palette_array_t &pal)
 {
 	SDL_Palette *palette;
 	std::array<uint8_t, 64> gamma;
 
-	if (pal != gr_current_pal)
-		SDL_FillRect(canvas, NULL, SDL_MapRGB(canvas->format, 0, 0, 0));
+	if (canvas && pal != gr_current_pal)
+		SDL_FillSurfaceRect(canvas, nullptr, 0);
 
 	copy_bound_palette(gr_current_pal, pal);
 
 	if (canvas == NULL)
 		return;
 
-	palette = canvas->format->palette;
+	palette = SDL_GetSurfacePalette(canvas);
 
 	if (palette == NULL)
 		return; // Display is not palettised
@@ -270,10 +244,11 @@ void gr_palette_load( palette_array_t &pal )
 		colors[j].r = (min(gr_current_pal[i].r + gr_palette_gamma, 63)) * 4;
 		colors[j].g = (min(gr_current_pal[i].g + gr_palette_gamma, 63)) * 4;
 		colors[j].b = (min(gr_current_pal[i].b + gr_palette_gamma, 63)) * 4;
+		colors[j].a = SDL_ALPHA_OPAQUE;
 		i++;
 	}
 
-	SDL_SetColors(canvas, colors.data(), 0, colors.size());
+	SDL_SetPaletteColors(palette, colors.data(), 0, colors.size());
 	reset_computed_colors();
 	gr_remap_color_fonts();
 }
@@ -283,7 +258,7 @@ void gr_palette_read(palette_array_t &pal)
 	SDL_Palette *palette;
 	unsigned i;
 
-	palette = canvas->format->palette;
+	palette = SDL_GetSurfacePalette(canvas);
 
 	if (palette == NULL)
 		return; // Display is not palettised
