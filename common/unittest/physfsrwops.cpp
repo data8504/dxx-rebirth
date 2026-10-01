@@ -9,7 +9,7 @@
 
 #include "physfsrwops.h"
 
-#include <SDL.h>
+#include <SDL3/SDL.h>
 #include <physfs.h>
 
 #include <array>
@@ -115,55 +115,74 @@ public:
 BOOST_FIXTURE_TEST_CASE(size_preserves_position, physfsrwops_test_fixture)
 {
 	auto rwops{open()};
-	BOOST_REQUIRE_EQUAL(SDL_RWseek(rwops.get(), 2, RW_SEEK_SET), 2);
-	BOOST_TEST(SDL_RWsize(rwops.get()) == 7);
-	BOOST_TEST(SDL_RWtell(rwops.get()) == 2);
+	BOOST_REQUIRE_EQUAL(SDL_SeekIO(rwops.get(), 2, SDL_IO_SEEK_SET), 2);
+	BOOST_TEST(SDL_GetIOSize(rwops.get()) == 7);
+	BOOST_TEST(SDL_TellIO(rwops.get()) == 2);
 }
 
-BOOST_FIXTURE_TEST_CASE(read_returns_complete_object_count, physfsrwops_test_fixture)
+BOOST_FIXTURE_TEST_CASE(read_returns_byte_count, physfsrwops_test_fixture)
 {
 	auto rwops{open()};
 	std::array<uint8_t, 6> buffer{};
 	constexpr std::array<uint8_t, 6> expected{{1, 2, 3, 4, 5, 6}};
-	BOOST_TEST(SDL_RWread(rwops.get(), buffer.data(), 2, 3) == 3u);
+	BOOST_TEST(SDL_ReadIO(rwops.get(), buffer.data(), buffer.size()) == 6u);
 	BOOST_TEST(buffer == expected);
-	BOOST_TEST(SDL_RWtell(rwops.get()) == 6);
+	BOOST_TEST(SDL_TellIO(rwops.get()) == 6);
 }
 
-BOOST_FIXTURE_TEST_CASE(read_does_not_count_partial_object, physfsrwops_test_fixture)
+BOOST_FIXTURE_TEST_CASE(short_read_reports_eof, physfsrwops_test_fixture)
 {
 	auto rwops{open()};
 	std::array<uint8_t, 8> buffer{};
-	BOOST_TEST(SDL_RWread(rwops.get(), buffer.data(), 4, 2) == 1u);
+	BOOST_TEST(SDL_ReadIO(rwops.get(), buffer.data(), buffer.size()) == 7u);
 	BOOST_TEST(buffer[6] == 7u);
-	BOOST_TEST(SDL_RWtell(rwops.get()) == 7);
+	BOOST_TEST(SDL_TellIO(rwops.get()) == 7);
+	BOOST_TEST(SDL_ReadIO(rwops.get(), buffer.data(), buffer.size()) == 0u);
+	BOOST_TEST(SDL_GetIOStatus(rwops.get()) == SDL_IO_STATUS_EOF);
 }
 
 BOOST_FIXTURE_TEST_CASE(zero_length_read_does_not_move_position, physfsrwops_test_fixture)
 {
 	auto rwops{open()};
 	uint8_t buffer{};
-	BOOST_TEST(SDL_RWread(rwops.get(), &buffer, 0, 1) == 0u);
-	BOOST_TEST(SDL_RWread(rwops.get(), &buffer, 1, 0) == 0u);
-	BOOST_TEST(SDL_RWtell(rwops.get()) == 0);
+	BOOST_TEST(SDL_ReadIO(rwops.get(), &buffer, 0) == 0u);
+	BOOST_TEST(SDL_TellIO(rwops.get()) == 0);
 }
 
-BOOST_FIXTURE_TEST_CASE(read_rejects_size_product_overflow, physfsrwops_test_fixture)
+BOOST_FIXTURE_TEST_CASE(read_rejects_unrepresentable_size, physfsrwops_test_fixture)
 {
 	auto rwops{open()};
 	uint8_t buffer{};
 	SDL_ClearError();
 	constexpr auto maximum{std::numeric_limits<std::size_t>::max()};
-	BOOST_TEST(SDL_RWread(rwops.get(), &buffer, maximum, maximum) == 0u);
+	BOOST_TEST(SDL_ReadIO(rwops.get(), &buffer, maximum) == 0u);
 	BOOST_TEST(SDL_GetError()[0] != '\0');
-	BOOST_TEST(SDL_RWtell(rwops.get()) == 0);
+	BOOST_TEST(SDL_TellIO(rwops.get()) == 0);
 }
 
-BOOST_FIXTURE_TEST_CASE(write_error_returns_zero_objects, physfsrwops_test_fixture)
+BOOST_FIXTURE_TEST_CASE(write_error_returns_zero_bytes, physfsrwops_test_fixture)
 {
 	auto rwops{open()};
 	std::array<uint8_t, 6> buffer{};
 	SDL_ClearError();
-	BOOST_TEST(SDL_RWwrite(rwops.get(), buffer.data(), 2, 3) == 0u);
+	BOOST_TEST(SDL_WriteIO(rwops.get(), buffer.data(), buffer.size()) == 0u);
 	BOOST_TEST(SDL_GetError()[0] != '\0');
+}
+
+BOOST_FIXTURE_TEST_CASE(invalid_seek_preserves_position, physfsrwops_test_fixture)
+{
+	auto stream{open()};
+	BOOST_REQUIRE_EQUAL(SDL_SeekIO(stream.get(), 2, SDL_IO_SEEK_SET), 2);
+	BOOST_TEST(SDL_SeekIO(stream.get(), -3, SDL_IO_SEEK_CUR) == -1);
+	BOOST_TEST(SDL_TellIO(stream.get()) == 2);
+	BOOST_TEST(SDL_SeekIO(stream.get(), std::numeric_limits<Sint64>::max(), SDL_IO_SEEK_CUR) == -1);
+	BOOST_TEST(SDL_TellIO(stream.get()) == 2);
+	BOOST_TEST(SDL_SeekIO(stream.get(), -1, SDL_IO_SEEK_END) == 6);
+}
+
+BOOST_FIXTURE_TEST_CASE(close_releases_physfs_handle, physfsrwops_test_fixture)
+{
+	auto stream{open()};
+	BOOST_TEST(SDL_CloseIO(stream.release()));
+	BOOST_TEST(SDL_TellIO(open().get()) == 0);
 }

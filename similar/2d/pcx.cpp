@@ -43,7 +43,7 @@ COPYRIGHT 1993-1998 PARALLAX SOFTWARE CORPORATION.  ALL RIGHTS RESERVED.
 
 #if DXX_USE_SDLIMAGE
 #include "physfsrwops.h"
-#include <SDL_image.h>
+#include <SDL3_image/SDL_image.h>
 #include "d_uspan.h"
 #endif
 
@@ -103,17 +103,17 @@ static auto load_physfs_blob(const char *const filename)
 
 static pcx_result pcx_read_bitmap(const char *const filename, grs_main_bitmap &bmp, palette_array_t &palette, RWops_ptr rw)
 {
-	RAII_SDL_Surface surface(IMG_LoadPCX_RW(rw.get()));
+	RAII_SDL_Surface surface(IMG_LoadPCX_IO(rw.get()));
 	if (!surface.surface)
 	{
 		con_printf(CON_NORMAL, "%s:%u: failed to create surface from \"%s\"", __FILE__, __LINE__, filename);
 		return pcx_result::ERROR_OPENING;
 	}
-	const auto &s = *surface.surface.get();
+	auto &s = *surface.surface.get();
 	const auto fmt{s.format};
-	if (!fmt || fmt->BitsPerPixel != 8)
+	if (SDL_BITSPERPIXEL(fmt) != 8)
 		return pcx_result::ERROR_WRONG_VERSION;
-	const auto fpal = fmt->palette;
+	const auto fpal = SDL_GetSurfacePalette(&s);
 	if (!fpal || fpal->ncolors != palette.size())
 		return pcx_result::ERROR_NO_PALETTE;
 	const unsigned xsize = s.w;
@@ -124,7 +124,8 @@ static pcx_result pcx_read_bitmap(const char *const filename, grs_main_bitmap &b
 		return pcx_result::ERROR_MEMORY;
 	DXX_CHECK_MEM_IS_DEFINED(std::span(static_cast<const std::byte *>(s.pixels), xsize * ysize));
 	gr_init_bitmap_alloc(bmp, bm_mode::linear, 0, 0, xsize, ysize, xsize);
-	std::copy_n(reinterpret_cast<const uint8_t *>(s.pixels), xsize * ysize, &bmp.get_bitmap_data()[0]);
+	for (unsigned y = 0; y < ysize; ++y)
+		std::copy_n(reinterpret_cast<const uint8_t *>(s.pixels) + y * s.pitch, xsize, &bmp.get_bitmap_data()[y * xsize]);
 	std::ranges::transform(std::span(fpal->colors, fpal->colors + palette.size()), palette.begin(),
 		[](const SDL_Color &c) {
 			return rgb_t{
@@ -206,7 +207,7 @@ pcx_result bald_guy_load(const char *const filename, grs_main_bitmap &bmp, palet
 	if (!b)
 		return pcx_result::ERROR_OPENING;
 
-	return pcx_read_bitmap(filename, bmp, palette, RWops_ptr{SDL_RWFromConstMem(b, bguy_data.size())});
+	return pcx_read_bitmap(filename, bmp, palette, RWops_ptr{SDL_IOFromConstMem(b, bguy_data.size())});
 #else
 	return pcx_support_not_compiled(filename, bmp, palette);
 #endif
@@ -228,7 +229,7 @@ pcx_result pcx_read_bitmap(const char *const filename, grs_main_bitmap &bmp, pal
 		con_printf(CON_NORMAL, "%s:%u: failed to open \"%s\": %s", __FILE__, __LINE__, filename, PHYSFS_getErrorByCode(PHYSFS_getLastErrorCode()));
 		return pcx_result::ERROR_OPENING;
 	}
-	return pcx_read_bitmap(filename, bmp, palette, RWops_ptr{SDL_RWFromConstMem(b, blob.size())});
+	return pcx_read_bitmap(filename, bmp, palette, RWops_ptr{SDL_IOFromConstMem(b, blob.size())});
 #else
 	return pcx_support_not_compiled(filename, bmp, palette);
 #endif
