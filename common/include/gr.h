@@ -37,7 +37,7 @@ COPYRIGHT 1993-1999 PARALLAX SOFTWARE CORPORATION.  ALL RIGHTS RESERVED.
 
 #if DXX_USE_SDLIMAGE || !DXX_USE_OGL
 #include <memory>
-#include <SDL_video.h>
+#include <SDL3/SDL_surface.h>
 #endif
 
 namespace dcx {
@@ -250,7 +250,7 @@ struct RAII_SDL_Surface
 	{
 		static void operator()(SDL_Surface *s)
 		{
-			SDL_FreeSurface(s);
+			SDL_DestroySurface(s);
 		}
 	};
 	std::unique_ptr<SDL_Surface, deleter> surface;
@@ -278,7 +278,7 @@ public:
 #else
 	/* SDL builds borrow the backing data from the SDL_Surface, so use
 	 * grs_subcanvas for the canvas because the memory is owned by SDL and will
-	 * be freed by SDL_FreeSurface.  Store the associated SDL_Surface alongside
+	 * be freed by SDL_DestroySurface.  Store the associated SDL_Surface alongside
 	 * the canvas, so that it is freed at the same time.
 	 */
 	RAII_SDL_Surface sdl_surface;
