@@ -26,7 +26,6 @@
 #include "fwd-gr.h"
 #include "timer.h"
 
-
 namespace dcx {
 #define CD_FPS 75
 
@@ -496,4 +495,3 @@ void RBAList(void)
 }
 
 }
-
