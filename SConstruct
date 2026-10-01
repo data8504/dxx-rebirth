@@ -3613,7 +3613,6 @@ class DXXCommon(LazyObjectConstructor):
 				except ValueError:
 					raise SCons.Errors.UserError(f'Invalid value for unsigned-integer-only option {key}: {value}.')
 		# Paths for the Videocore libs/includes on the Raspberry Pi
-		RPI_DEFAULT_VC_PATH: str = '/opt/vc'
 		default_OGLES_LIB: str = 'GLES_CM'
 		default_EGL_LIB: str = 'EGL'
 		_default_prefix: str = '/usr/local'
@@ -3878,7 +3877,6 @@ class DXXCommon(LazyObjectConstructor):
 			{
 				'variable': generic_variable,
 				'arguments': (
-					('rpi_vc_path', self.RPI_DEFAULT_VC_PATH, 'directory for RPi VideoCore libraries'),
 					('opengles_lib', self.selected_OGLES_LIB, 'name of the OpenGL ES library to link against'),
 					('egl_lib', self.selected_EGL_LIB, 'name of the OpenGL ES Graphics Library to link against'),
 					('prefix', self._default_prefix, 'installation prefix directory (Linux only)'),
