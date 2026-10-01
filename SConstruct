@@ -1259,7 +1259,7 @@ void test_virtual_function_supported::a() {}
 {self.__defined_macros}
 {text}
 
-#undef main	/* avoid -Dmain=SDL_main from libSDL (and, on some platforms, from libSDL2) */
+#undef main	/* configuration tests use their own main */
 '''
 # As a special case, a caller may set main=None to prevent generating the
 # `main()` function.  This is only useful when the included headers or
@@ -1754,136 +1754,85 @@ static void terminate_handler()
 
 	@_custom_test
 	def _check_SDL(self,context):
-		if not self.user_settings.sdl2:
-			raise SCons.Errors.StopError('SDL 1.2 is no longer supported.')
-		self.check_libSDL2(context)
-		self.check_SDL2_image(context)
-		self.check_SDL2_mixer(context)
+		self.check_libSDL3(context)
+		self.check_SDL3_image(context)
+		self.check_SDL3_mixer(context)
 
 	@_implicit_test
-	def check_libSDL2(self,context,_guess_flags={
-			'LIBS' : ['SDL2'] if sys.platform != 'darwin' else [],
-		}):
-		if not self.user_settings.opengl:
-			raise SCons.Errors.StopError('Rebirth does not support SDL2 without OpenGL.  Set opengl=1 or sdl2=0.')
-		self._check_libSDL(context, '2', _guess_flags)
-
-	def _check_libSDL(self,context,sdl2,guess_flags):
+	def check_libSDL3(self,context):
 		user_settings = self.user_settings
-		successflags = self.pkgconfig.merge(context, self.msgprefix, user_settings, f'sdl{sdl2}', f'SDL{sdl2}', guess_flags).copy()
+		successflags = self.pkgconfig.merge(context, self.msgprefix, user_settings, 'sdl3', 'SDL3', {'LIBS': ['SDL3']}).copy()
+		if user_settings._enumerated_host_platform == host_platform.darwin and user_settings.macos_add_frameworks:
+			successflags['LIBS'] = []
+			successflags['FRAMEWORKS'] = ['SDL3']
 		if user_settings.max_joysticks:
-			# If joysticks are enabled, but all possible inputs are
-			# disabled, then disable joystick support.
 			if not (user_settings.max_axes_per_joystick or user_settings.max_buttons_per_joystick or user_settings.max_hats_per_joystick):
 				user_settings.max_joysticks = 0
 			elif not user_settings.max_buttons_per_joystick:
 				user_settings.max_hats_per_joystick = 0
 		else:
-			# If joysticks are disabled, then disable all possible
-			# inputs.
 			user_settings.max_axes_per_joystick = user_settings.max_buttons_per_joystick = user_settings.max_hats_per_joystick = 0
-		successflags['CPPDEFINES'] = CPPDEFINES = successflags.get('CPPDEFINES', []).copy()
-		# Only Windows has a native CD implementation.
-		use_redbook = int(user_settings._enumerated_host_platform in (host_platform.win32, host_platform.win64))
-		CPPDEFINES.extend((
+		successflags['CPPDEFINES'] = successflags.get('CPPDEFINES', []).copy() + [
 			('DXX_MAX_JOYSTICKS', user_settings.max_joysticks),
 			('DXX_MAX_AXES_PER_JOYSTICK', user_settings.max_axes_per_joystick),
 			('DXX_MAX_BUTTONS_PER_JOYSTICK', user_settings.max_buttons_per_joystick),
 			('DXX_MAX_HATS_PER_JOYSTICK', user_settings.max_hats_per_joystick),
-			('DXX_USE_SDL_REDBOOK_AUDIO', use_redbook),
-		))
+			('DXX_USE_SDL_REDBOOK_AUDIO', int(user_settings._enumerated_host_platform in (host_platform.win32, host_platform.win64))),
+		]
 		context.Display(f'{self.msgprefix}: checking whether to enable joystick support...{"yes" if user_settings.max_joysticks else "no"}\n')
-		# SDL2 removed CD-rom support.
-		init_cdrom = '0'
-		error_text_opengl_mismatch = f'Rebirth configured with OpenGL enabled, but SDL{sdl2} configured with OpenGL disabled.  Disable Rebirth OpenGL or install an SDL{sdl2} with OpenGL enabled.'
-		test_opengl = (f'''
-#if !((SDL_MAJOR_VERSION == 1) && (SDL_MINOR_VERSION == 2) && (SDL_PATCHLEVEL >= 50))
-#ifndef SDL_VIDEO_OPENGL
-#error "{error_text_opengl_mismatch}"
-#endif
-#endif
-''') if user_settings.opengl else ''
 		main = '''
-	SDL_RWops *ops = reinterpret_cast<SDL_RWops *>(argv);
+#if !SDL_VERSION_ATLEAST(3, 2, 0)
+#error "SDL 3.2 or later is required."
+#endif
+	if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO))
+		return 1;
 #if DXX_MAX_JOYSTICKS
-#ifdef SDL_JOYSTICK_DISABLED
-#error "Rebirth configured with joystick support enabled, but SDL{sdl2} configured with joystick support disabled.  Disable Rebirth joystick support or install an SDL{sdl2} with joystick support enabled."
+	int count;
+	SDL_free(SDL_GetJoysticks(&count));
 #endif
-#define DXX_SDL_INIT_JOYSTICK	SDL_INIT_JOYSTICK |
-#else
-#define DXX_SDL_INIT_JOYSTICK
-#endif
-	SDL_Init(DXX_SDL_INIT_JOYSTICK {init_cdrom} | SDL_INIT_VIDEO | SDL_INIT_AUDIO);
-{test_opengl}
-#if DXX_MAX_JOYSTICKS
-	auto n = SDL_NumJoysticks();
-	(void)n;
-#endif
-	SDL_QuitSubSystem(SDL_INIT_VIDEO);
-	SDL_FreeRW(ops);
+	SDL_CloseIO(SDL_IOFromConstMem(argv, sizeof(argv)));
 	SDL_Quit();
 '''
-		e = self._soft_check_system_library(context,header=['SDL.h'],main=main.format(init_cdrom=init_cdrom, sdl2=sdl2, test_opengl=test_opengl),
-			lib=f'SDL{sdl2} with{"" if test_opengl else "out"} OpenGL', successflags=successflags
-		)
-		if not e:
-			return
-		if test_opengl:
-			e2 = self._soft_check_system_library(context,header=['SDL.h'],main=main.format(init_cdrom=init_cdrom, sdl2=sdl2, test_opengl=''),
-				lib=f'SDL{sdl2} without OpenGL', successflags=successflags
-			)
-			if not e2 and e[0] == 1:
-				e = (None, error_text_opengl_mismatch)
-		raise SCons.Errors.StopError(e[1])
+		if user_settings.opengl:
+			main += '''
+	SDL_Window *window = SDL_CreateWindow("configure", 320, 200, SDL_WINDOW_OPENGL);
+	SDL_GLContext gl = SDL_GL_CreateContext(window);
+	SDL_GL_DestroyContext(gl);
+	SDL_DestroyWindow(window);
+'''
+		self._check_system_library(context, header=['SDL3/SDL.h'], main=main, lib='SDL3', successflags=successflags)
 
 	@_implicit_test
-	def check_SDL2_image(self,context):
-		self._check_SDL_image(context, '2')
-
-	def _check_SDL_image(self,context,sdl2):
-		self._check_SDL_addon_library(context, sdl2, 'SDL%s_image', 'DXX_USE_SDLIMAGE', self.user_settings.sdlimage, '''
-	IMG_Init(0);
-	SDL_RWops *rw = reinterpret_cast<SDL_RWops *>(argv);
-	SDL_Surface *s = IMG_LoadPCX_RW(rw);
-	(void)s;
-	IMG_Quit();
+	def check_SDL3_image(self,context):
+		self._check_SDL_addon_library(context, 'SDL3_image', 'SDL3_image/SDL_image.h', 'DXX_USE_SDLIMAGE', self.user_settings.sdlimage, '''
+	SDL_Surface *s = IMG_LoadPCX_IO(SDL_IOFromConstMem(argv, sizeof(argv)));
+	SDL_DestroySurface(s);
 ''')
 
-	# SDL_mixer/SDL2_mixer use the same -I line as SDL/SDL2
 	@_implicit_test
-	def check_SDL2_mixer(self,context):
-		self._check_SDL_mixer(context, '2')
-
-	def _check_SDL_mixer(self,context,sdl2):
-		self._check_SDL_addon_library(context, sdl2, 'SDL%s_mixer', 'DXX_USE_SDLMIXER', self.user_settings.sdlmixer, '''
-	int i = Mix_Init(MIX_INIT_FLAC | MIX_INIT_OGG);
-	(void)i;
-	Mix_Pause(0);
-	Mix_ResumeMusic();
-	Mix_Quit();
+	def check_SDL3_mixer(self,context):
+		self._check_SDL_addon_library(context, 'SDL3_mixer', 'SDL3_mixer/SDL_mixer.h', 'DXX_USE_SDLMIXER', self.user_settings.sdlmixer, '''
+#if !SDL_MIXER_VERSION_ATLEAST(3, 2, 0)
+#error "SDL_mixer 3.2 or later is required."
+#endif
+	MIX_Init();
+	MIX_Mixer *mixer = MIX_CreateMixerDevice(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, nullptr);
+	MIX_DestroyMixer(mixer);
+	MIX_Quit();
 ''')
 
-	def _check_SDL_addon_library(self,context,sdl2,library_format_name,macro_name,use_addon,main):
-		library_name = library_format_name % sdl2
+	def _check_SDL_addon_library(self,context,library_name,header,macro_name,use_addon,main):
 		self._define_macro(context, macro_name, int(use_addon))
 		context.Display(f'{self.msgprefix}: checking whether to use {library_name}...{"yes" if use_addon else "no"}\n')
 		if not use_addon:
 			return
 		user_settings = self.user_settings
-		guess_flags = {
-			'LIBS' : [library_name] if sys.platform != 'darwin' else [],
-		}
-		successflags = self.pkgconfig.merge(context, self.msgprefix, user_settings, library_name, library_name, guess_flags)
+		successflags = self.pkgconfig.merge(context, self.msgprefix, user_settings, library_name.lower().replace('_', '-'), library_name, {'LIBS': [library_name]})
 		if user_settings._enumerated_host_platform == host_platform.darwin and user_settings.macos_add_frameworks:
 			successflags = successflags.copy()
 			successflags['FRAMEWORKS'] = [library_name]
-			relative_headers = f'Library/Frameworks/{library_name}.framework/Headers'
-			successflags['CPPPATH'] = [h for h in (os.path.join(os.getenv("HOME"), relative_headers), f'/{relative_headers}') if os.path.isdir(h)]
-		# SDL2 headers still use SDL_*.h for their filename, not
-		# SDL2_*.h, so expanded library_format_name with an explicitly
-		# blank insert, regardless of whether building for SDL1 or SDL2.
-		self._check_system_library(context, header=['%s.h' % (library_format_name % '')], main=main, lib=library_name, successflags=successflags)
-
+			successflags['LIBS'] = []
+		self._check_system_library(context, header=[header], main=main, lib=library_name, successflags=successflags)
 	@_custom_test
 	def check_attribute_error(self,context):
 		"""
@@ -2557,7 +2506,7 @@ $ x86_64-pc-linux-gnu-g++-5.4.0 -x c++ -S -Wformat -o /dev/null -
  *
  * Reported-by: derhass <https://github.com/dxx-rebirth/dxx-rebirth/issues/257>
  */
-#include <SDL_endian.h>
+#include <SDL3/SDL_endian.h>
 
 ''', main='''
 	return SDL_Swap32(argc);
@@ -2867,7 +2816,7 @@ constexpr std::bitset<4> f()
 #include <ApplicationServices/ApplicationServices.h>
 #endif
 
-#include <SDL.h>
+#include <SDL3/SDL.h>
 ''',
 		_mangle_compiler_option_name=__mangle_compiler_option_name,
 		_mangle_linker_option_name=__mangle_linker_option_name
@@ -3780,8 +3729,6 @@ class DXXCommon(LazyObjectConstructor):
 			if self.raspberrypi in ('yes',):
 				return True
 			return False
-		def default_sdl2(self):
-			return True
 		@classmethod
 		def default_verbosebuild(cls):
 			# Enable verbosebuild when the output is not directed to a
@@ -3805,12 +3752,8 @@ class DXXCommon(LazyObjectConstructor):
 				return False
 			return self.opengl and not self.opengles
 		def selected_OGLES_LIB(self):
-			if self.raspberrypi == 'yes':
-				return 'brcmGLESv2'
 			return self.default_OGLES_LIB
 		def selected_EGL_LIB(self):
-			if self.raspberrypi == 'yes':
-				return 'brcmEGL'
 			return self.default_EGL_LIB
 		def need_dynamic_library_load(self):
 			return self.adlmidi == 'runtime'
@@ -3965,7 +3908,6 @@ class DXXCommon(LazyObjectConstructor):
 					('opengl', True, 'build with OpenGL support'),
 					('opengles', self.default_opengles, 'build with OpenGL ES support'),
 					('editor', False, 'include editor into build (!EXPERIMENTAL!)'),
-					('sdl2', self.default_sdl2, 'use libSDL2+SDL2_mixer (!EXPERIMENTAL!)'),
 					# Build with SDL_Image support for PCX file support
 					# Currently undocumented because the user experience
 					# without PCX support is ugly, so this should always
@@ -4296,8 +4238,6 @@ class DXXCommon(LazyObjectConstructor):
 		# arguments are included.
 		tools = ('gcc', 'g++', 'applelink')
 		def adjust_environment(self,program,env):
-			if self.user_settings.sdl2 == False:
-				raise SCons.Errors.StopError('macOS builds do not support SDL 1.2.')
 			macos_add_frameworks = self.user_settings.macos_add_frameworks
 			if macos_add_frameworks:
 				# The user may or may not have a private installation of
@@ -4311,7 +4251,7 @@ class DXXCommon(LazyObjectConstructor):
 					# whether the user has a private copy of the SDL
 					# framework.
 					env.Append(FRAMEWORKPATH = [library_frameworks])
-					SDL_private_framework = os.path.join(library_frameworks, 'SDL.framework/Headers')
+					SDL_private_framework = os.path.join(library_frameworks, 'SDL3.framework/Headers')
 					if os.path.isdir(SDL_private_framework):
 						# Yes, so add its headers to the C preprocessor
 						# path.
@@ -4320,7 +4260,7 @@ class DXXCommon(LazyObjectConstructor):
 					# the C preprocessor path.
 				# Check whether a system-wide SDL framework is
 				# available.
-				SDL_system_framework = '/Library/Frameworks/SDL.framework/Headers'
+				SDL_system_framework = '/Library/Frameworks/SDL3.framework/Headers'
 				if os.path.isdir(SDL_system_framework):
 					env.Append(CPPPATH = [SDL_system_framework])
 			env.Append(
@@ -4329,7 +4269,7 @@ class DXXCommon(LazyObjectConstructor):
 				LINKFLAGS = ['-Wl,-rpath,@loader_path/../Frameworks'],	# Allow libraries & frameworks to go in app bundle
 			)
 			if macos_add_frameworks:
-				env.Append(FRAMEWORKS = ['SDL'])
+				env.Append(FRAMEWORKS = ['SDL3'])
 			if self.user_settings.opengl or self.user_settings.opengles:
 				env.Append(
 					CPPDEFINES = [('GL_SILENCE_DEPRECATION',)],
@@ -4882,23 +4822,8 @@ class DXXCommon(LazyObjectConstructor):
 		# defaults are present to ensure that a user who does not set
 		# any options gets a good default experience.
 		env.Prepend(CXXFLAGS = ['-g', '-O2'])
-		# Raspberry Pi?
 		if user_settings.raspberrypi == 'yes':
-			rpi_vc_path = user_settings.rpi_vc_path
-			message(self, f'Raspberry Pi: using VideoCore libs in {rpi_vc_path!r}')
-			env.Append(
-				CPPDEFINES = ['RPI'],
-			# use CPPFLAGS -isystem instead of CPPPATH because these those header files
-			# are not very clean and would trigger some warnings we usually consider as
-			# errors. Using them as system headers will make gcc ignoring any warnings.
-				CPPFLAGS = [
-				f'-isystem{rpi_vc_path}/include',
-				f'-isystem{rpi_vc_path}/include/interface/vcos/pthreads',
-				f'-isystem{rpi_vc_path}/include/interface/vmcs_host/linux',
-			],
-				LIBPATH = f'{rpi_vc_path}/lib',
-				LIBS = ['bcm_host'],
-			)
+			raise SCons.Errors.StopError('The SDL1 VideoCore backend is retired. Use raspberrypi=mesa with SDL3.')
 
 	def _register_runtime_test_link_targets(self, _check_action = [['$SOURCE']]):
 		runtime_test_boost_tests = self.runtime_test_boost_tests
@@ -4929,6 +4854,8 @@ class DXXCommon(LazyObjectConstructor):
 		# is that the `check` target will not attempt to run them.
 		runnable_runtime_tests = [] if user_settings._enumerated_build_platform == user_settings._enumerated_host_platform else None
 		for test in runtime_test_boost_tests:
+			if test.target == 'test-sdl-input' and not user_settings.max_joysticks:
+				continue
 			LIBS = [] if (env_LIBS is None or not test.use_default_libs) else env_LIBS.copy()
 			LIBS.extend((
 				'boost_unit_test_framework',
@@ -4973,6 +4900,16 @@ class DXXArchive(DXXCommon):
 
 	RuntimeTest = DXXCommon.RuntimeTest
 	runtime_test_boost_tests = (
+		RuntimeTest('test-sdl-input', (
+			'common/unittest/sdl_input.cpp',
+			'common/arch/sdl/key.cpp',
+			'common/arch/sdl/joy.cpp',
+			'common/arch/sdl/gamecontroller.cpp',
+			'common/misc/physfsrwops.cpp',
+			), use_default_libs=True),
+		RuntimeTest('test-sdl-video', (
+			'common/unittest/sdl_video.cpp',
+			), use_default_libs=True),
 		RuntimeTest('test-homing', (
 			'common/unittest/homing.cpp',
 			)),
@@ -5062,7 +4999,7 @@ class DXXArchive(DXXCommon):
 		__get_objects_use_joystick=DXXCommon.create_lazy_object_getter((
 'common/arch/sdl/joy.cpp',
 )),
-		__get_objects_use_joystick_sdl2=DXXCommon.create_lazy_object_getter((
+		__get_objects_use_gamepad=DXXCommon.create_lazy_object_getter((
 'common/arch/sdl/gamecontroller.cpp',
 ))
 		):
@@ -5075,7 +5012,7 @@ class DXXArchive(DXXCommon):
 		if user_settings.max_joysticks:
 			extend(__get_objects_use_joystick(self))
 		if user_settings.max_joysticks:
-			extend(__get_objects_use_joystick_sdl2(self))
+			extend(__get_objects_use_gamepad(self))
 		extend(self.platform_settings.get_platform_objects())
 		return value
 
@@ -5122,13 +5059,12 @@ class DXXArchive(DXXCommon):
 'common/arch/win32/except.cpp',
 'common/arch/win32/messagebox.cpp',
 ))
-		__get_sdl2_objects = LazyObjectConstructor.create_lazy_object_getter((
+		__get_cd_objects = LazyObjectConstructor.create_lazy_object_getter((
 'common/arch/win32/rbaudio.cpp',
 ))
 		def get_platform_objects(self):
 			result = self.__get_platform_objects()
-			if self.user_settings.sdl2:
-				result += self.__get_sdl2_objects()
+			result += self.__get_cd_objects()
 			return result
 
 	class DarwinPlatformSettings(DXXCommon.DarwinPlatformSettings):
@@ -5137,14 +5073,9 @@ class DXXArchive(DXXCommon):
 		))
 
 	class LinuxPlatformSettings(DXXCommon.LinuxPlatformSettings):
-		__get_sdl2_objects = LazyObjectConstructor.create_lazy_object_getter((
+		get_platform_objects = LazyObjectConstructor.create_lazy_object_getter((
 'common/arch/sdl/messagebox.cpp',
 ))
-		def get_platform_objects(self):
-			result = ()
-			if self.user_settings.sdl2:
-				result += self.__get_sdl2_objects()
-			return result
 
 	def __init__(self,user_settings):
 		user_settings = user_settings.clone()
