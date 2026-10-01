@@ -17,7 +17,9 @@ PYTHON_COMPAT=( python3_14 )
 inherit desktop python-any-r1 scons-utils toolchain-funcs xdg
 if [[ "$PV" = 9999 ]]; then
 	inherit git-r3
-	EGIT_REPO_URI="https://github.com/dxx-rebirth/dxx-rebirth"
+	# Override the repository and branch together to select another SDL3 source.
+	EGIT_REPO_URI="${EGIT_REPO_URI:-https://github.com/data8504/dxx-rebirth}"
+	EGIT_BRANCH="${EGIT_BRANCH:-migration/sdl3-only}"
 	# Live ebuilds have blank keywords.
 	KEYWORDS=
 else
