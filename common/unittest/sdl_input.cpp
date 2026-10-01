@@ -17,6 +17,7 @@
 #include <physfs.h>
 #include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
 
 #define BOOST_TEST_DYN_LINK
@@ -167,6 +168,48 @@ BOOST_FIXTURE_TEST_CASE(disabled_repeat_does_not_repeat_physical_commands, input
 	key.repeat = false;
 	dcx::key_handler(&key);
 	BOOST_TEST(!dcx::keyd_pressed[KEY_A]);
+}
+
+BOOST_FIXTURE_TEST_CASE(releasing_alt_and_ctrl_clears_command_modifiers, input_fixture)
+{
+	for (const auto &[scancode, modifier] : {
+		std::pair{SDL_SCANCODE_LALT, KEY_ALTED},
+		std::pair{SDL_SCANCODE_LCTRL, KEY_CTRLED},
+	})
+	{
+		SDL_KeyboardEvent key{};
+		key.type = SDL_EVENT_KEY_DOWN;
+		key.down = true;
+		key.scancode = scancode;
+		dcx::key_handler(&key);
+		events.clear();
+		key.scancode = SDL_SCANCODE_F2;
+		dcx::key_handler(&key);
+		key.type = SDL_EVENT_KEY_UP;
+		key.down = false;
+		dcx::key_handler(&key);
+		BOOST_REQUIRE_EQUAL(events.size(), 2u);
+		BOOST_CHECK(events[0].type == dcx::event_type::key_command);
+		BOOST_CHECK(events[1].type == dcx::event_type::key_release);
+		BOOST_TEST(events[0].index == static_cast<unsigned>(KEY_F2 | modifier));
+		BOOST_TEST(events[1].index == static_cast<unsigned>(KEY_F2 | modifier));
+
+		key.scancode = scancode;
+		dcx::key_handler(&key);
+		events.clear();
+		key.scancode = SDL_SCANCODE_F2;
+		key.type = SDL_EVENT_KEY_DOWN;
+		key.down = true;
+		dcx::key_handler(&key);
+		key.type = SDL_EVENT_KEY_UP;
+		key.down = false;
+		dcx::key_handler(&key);
+		BOOST_REQUIRE_EQUAL(events.size(), 2u);
+		BOOST_CHECK(events[0].type == dcx::event_type::key_command);
+		BOOST_CHECK(events[1].type == dcx::event_type::key_release);
+		BOOST_TEST(events[0].index == KEY_F2);
+		BOOST_TEST(events[1].index == KEY_F2);
+	}
 }
 
 BOOST_FIXTURE_TEST_CASE(gamepad_ids_and_hotplug_preserve_saved_bindings, input_fixture)
