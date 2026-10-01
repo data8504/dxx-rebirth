@@ -330,7 +330,6 @@ window_event_result standard_handler(const d_event &event)
 						if (window_get_front() == Game_wind)
 							return window_event_result::ignored;
 					gr_toggle_fullscreen();
-#if SDL_MAJOR_VERSION == 2
 					{
 						/* Hack to force the canvas to adjust to the new
 						 * dimensions.  Without this, the canvas
@@ -355,7 +354,6 @@ window_event_result standard_handler(const d_event &event)
 						init_cockpit();
 						Screen_mode = sm;
 					}
-#endif
 					return window_event_result::handled;
 
 				case KEY_SHIFTED + KEY_ESC:
@@ -412,18 +410,6 @@ d_interface_unique_state::d_interface_unique_state()
 
 void d_interface_unique_state::update_window_title()
 {
-#if SDL_MAJOR_VERSION == 1
-	if (!PilotName[0u])
-		SDL_WM_SetCaption(DESCENT_VERSION, DXX_SDL_WINDOW_CAPTION);
-	else
-	{
-		const char *const pilot = PilotName;
-		std::array<char, 80> wm_caption_name, wm_caption_iconname;
-		snprintf(wm_caption_name.data(), wm_caption_name.size(), "%s: %s", DESCENT_VERSION, pilot);
-		snprintf(wm_caption_iconname.data(), wm_caption_iconname.size(), "%s: %s", DXX_SDL_WINDOW_CAPTION, pilot);
-		SDL_WM_SetCaption(wm_caption_name.data(), wm_caption_iconname.data());
-	}
-#endif
 }
 
 }
@@ -564,13 +550,9 @@ static int main(int argc, char *argv[])
 		{
 			SDL_version vc;
 			SDL_VERSION(&vc);
-#if SDL_MAJOR_VERSION == 1
-			const auto vl = SDL_Linked_Version();
-#else
 			SDL_version vlv;
 			const auto vl = &vlv;
 			SDL_GetVersion(vl);
-#endif
 			con_printf(CON_VERBOSE, "D" DXX_NAME_NUMBER "X-Rebirth built with libSDL %u.%u.%u; loaded with libSDL %u.%u.%u", vc.major, vc.minor, vc.patch, vl->major, vl->minor, vl->patch);
 		}
 #if DXX_USE_SDLIMAGE

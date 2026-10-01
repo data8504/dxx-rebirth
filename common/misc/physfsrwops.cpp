@@ -31,19 +31,12 @@
 #include "physfsrwops.h"
 #include "physfsx.h"
 
-#if SDL_MAJOR_VERSION == 1
-#define SDL_RWops_callback_seek_position	int
-#define SDL_RWops_callback_read_position	int
-#define SDL_RWops_callback_write_position	int
-#else
 #define SDL_RWops_callback_seek_position	Sint64
 #define SDL_RWops_callback_read_position	size_t
 #define SDL_RWops_callback_write_position	size_t
-#endif
 
 namespace {
 
-#if SDL_MAJOR_VERSION == 2
 static Sint64 physfsrwops_size(SDL_RWops *rw)
 {
     PHYSFS_File *handle = reinterpret_cast<PHYSFS_File *>(rw->hidden.unknown.data1);
@@ -52,7 +45,6 @@ static Sint64 physfsrwops_size(SDL_RWops *rw)
 		SDL_SetError("Can't find end of file: %s", PHYSFS_getLastError());
 	return len;
 } /* physfsrwops_size */
-#endif
 
 static SDL_RWops_callback_seek_position physfsrwops_seek(SDL_RWops *rw, const SDL_RWops_callback_seek_position offset, const int whence)
 {
@@ -252,15 +244,12 @@ std::pair<RWops_ptr, PHYSFS_ErrorCode> PHYSFSRWOPS_openRead(const char *fname)
         {
 			[[likely]];
 			*retval = {
-#if SDL_MAJOR_VERSION >= 2
 				.size{physfsrwops_size},
-#endif
 				.seek{physfsrwops_seek},
 				.read{physfsrwops_read},
 				.write{physfsrwops_write},
 				.close{physfsrwops_close},
 				.type{
-#if SDL_MAJOR_VERSION >= 2
 					/* SDL2 added this `#define`.  For SDL1, use
 					 * value-initialization.
 					 *
@@ -268,18 +257,15 @@ std::pair<RWops_ptr, PHYSFS_ErrorCode> PHYSFSRWOPS_openRead(const char *fname)
 					 * that all members are initialized.
 					 */
 					SDL_RWOPS_UNKNOWN
-#endif
 				},
 				.hidden{
 					.unknown{
 						.data1{handle.release()},
-#if SDL_MAJOR_VERSION >= 2
 						/* SDL2 added this member.  In SDL1, union `hidden` was
 						 * (at least) 3 pointers long, but the struct `unknown`
 						 * only had one member, `data1`.
 						 */
 						.data2{},
-#endif
 					}
 				}
 			};

@@ -72,23 +72,8 @@ namespace dcx {
 
 static int ogl_brightness_r, ogl_brightness_g, ogl_brightness_b;
 
-#if DXX_USE_OGLES && SDL_MAJOR_VERSION == 1
-static int sdl_video_flags;
-
-#ifdef RPI
-static EGL_DISPMANX_WINDOW_T nativewindow;
-static DISPMANX_ELEMENT_HANDLE_T dispman_element=DISPMANX_NO_HANDLE;
-static DISPMANX_DISPLAY_HANDLE_T dispman_display=DISPMANX_NO_HANDLE;
-#endif
-
-#else
-#if SDL_MAJOR_VERSION == 1
-static int sdl_video_flags = SDL_OPENGL;
-#elif SDL_MAJOR_VERSION == 2
 SDL_Window *g_pRebirthSDLMainWindow;
 static int g_iRebirthWindowX, g_iRebirthWindowY;
-#endif
-#endif
 static ogl_sync sync_helper;
 static int gr_installed;
 static int gl_initialized;
@@ -115,12 +100,6 @@ void gr_set_stereo_mode_sync()
 
 namespace dsx {
 
-#if SDL_MAJOR_VERSION == 1
-void gr_set_mode_from_window_size()
-{
-	gr_set_mode(Game_screen_mode);
-}
-#elif SDL_MAJOR_VERSION == 2
 static void gr_set_mode_from_window_size(SDL_Window *const SDLWindow)
 {
 	assert(SDLWindow);
@@ -133,47 +112,16 @@ void gr_set_mode_from_window_size()
 {
 	gr_set_mode_from_window_size(g_pRebirthSDLMainWindow);
 }
-#endif
 
 }
 
-#if DXX_USE_OGLES && SDL_MAJOR_VERSION == 1 
-static EGLDisplay eglDisplay=EGL_NO_DISPLAY;
-static EGLSurface eglSurface=EGL_NO_SURFACE;
-static EGLContext eglContext=EGL_NO_CONTEXT;
-
-static bool TestEGLError(const char* pszLocation)
-{
-	/*
-	 * eglGetError returns the last error that has happened using egl,
-	 * not the status of the last called function. The user has to
-	 * check after every single egl call or at least once every frame.
-	*/
-	EGLint iErr = eglGetError();
-	if (iErr != EGL_SUCCESS)
-	{
-		con_printf(CON_URGENT, "%s failed (%d).", pszLocation, iErr);
-		return 0;
-	}
-	
-	return 1;
-}
-#endif
 
 namespace dcx {
 
 void ogl_swap_buffers_internal(void)
 {
 	sync_helper.before_swap();
-#if DXX_USE_OGLES && SDL_MAJOR_VERSION == 1
-	eglSwapBuffers(eglDisplay, eglSurface);
-#else
-#if SDL_MAJOR_VERSION == 1
-	SDL_GL_SwapBuffers();
-#elif SDL_MAJOR_VERSION == 2
 	SDL_GL_SwapWindow(g_pRebirthSDLMainWindow);
-#endif
-#endif
 	sync_helper.after_swap();
 }
 
@@ -320,179 +268,14 @@ static int rpi_setup_element(int x, int y, Uint32 video_flags, int update)
 
 #endif // RPI
 
-#if DXX_USE_OGLES && SDL_MAJOR_VERSION == 1
-static void ogles_destroy()
-{
-	if( eglDisplay != EGL_NO_DISPLAY ) {
-		eglMakeCurrent(eglDisplay, NULL, NULL, EGL_NO_CONTEXT);
-	}
-
-	if (eglContext != EGL_NO_CONTEXT) {
-		con_printf(CON_DEBUG, "EGL: destroyig context");
-		eglDestroyContext(eglDisplay, eglContext);
-		eglContext = EGL_NO_CONTEXT;
-	}
-
-	if (eglSurface != EGL_NO_SURFACE) {
-		con_printf(CON_DEBUG, "EGL: destroyig surface");
-		eglDestroySurface(eglDisplay, eglSurface);
-		eglSurface = EGL_NO_SURFACE;
-	}
-
-	if (eglDisplay != EGL_NO_DISPLAY) {
-		con_printf(CON_DEBUG, "EGL: terminating");
-		eglTerminate(eglDisplay);
-		eglDisplay = EGL_NO_DISPLAY;
-	}
-}
-#endif
 
 static int ogl_init_window(int w, int h)
 {
-#if DXX_USE_OGLES && SDL_MAJOR_VERSION == 1
-	SDL_SysWMinfo info;
-	Window    x11Window = 0;
-	Display*  x11Display = 0;
 
-#endif // OGLES
-
-#if SDL_MAJOR_VERSION == 1
-	if (gl_initialized)
-		ogl_smash_texture_list_internal();//if we are or were fullscreen, changing vid mode will invalidate current textures
-
-	SDL_WM_SetCaption(DESCENT_VERSION, DXX_SDL_WINDOW_CAPTION);
-	if (const auto window_icon = SDL_LoadBMP(DXX_SDL_WINDOW_ICON_BITMAP))
-		SDL_WM_SetIcon(window_icon, nullptr);
-
-	int use_x = w;
-	int use_y = h;
-	int use_bpp = CGameArg.DbgBpp;
-	int use_flags = sdl_video_flags;
-	if (sdl_no_modeswitch) {
-		const SDL_VideoInfo *vinfo=SDL_GetVideoInfo();
-		if (vinfo) {	
-			use_x=vinfo->current_w;
-			use_y=vinfo->current_h;
-			use_bpp=vinfo->vfmt->BitsPerPixel;
-			use_flags=SDL_SWSURFACE | SDL_ANYFORMAT;
-		} else {
-			con_puts(CON_URGENT, "Could not query video info");
-		}
-	}
-
-	if (!SDL_SetVideoMode(use_x, use_y, use_bpp, use_flags))
-	{
-#ifdef RPI
-		con_printf(CON_URGENT, "Could not set %dx%dx%d opengl video mode: %s\n (Ignored for RPI)",
-			    w, h, CGameArg.DbgBpp, SDL_GetError());
-#else
-		Error("Could not set %dx%dx%d opengl video mode: %s\n", w, h, CGameArg.DbgBpp, SDL_GetError());
-#endif
-	}
-#elif SDL_MAJOR_VERSION == 2
 	const auto SDLWindow{g_pRebirthSDLMainWindow};
 	if (!(SDL_GetWindowFlags(SDLWindow) & SDL_WINDOW_FULLSCREEN))
 		SDL_SetWindowSize(SDLWindow, w, h);
-#endif
 
-#if DXX_USE_OGLES && SDL_MAJOR_VERSION == 1
-#ifndef RPI
-	// NOTE: on the RPi, the EGL stuff is not connected to the X11 window,
-	//       so there is no need to destroy and recreate this
-	ogles_destroy();
-#endif
-
-	SDL_VERSION(&info.version);
-
-	if (SDL_GetWMInfo(&info) > 0) {
-		if (info.subsystem == SDL_SYSWM_X11) {
-			x11Display = info.info.x11.display;
-			x11Window = info.info.x11.window;
-			con_printf (CON_DEBUG, "Display: %p, Window: %i ===", x11Display, static_cast<int>(x11Window));
-		}
-	}
-
-	if (eglDisplay == EGL_NO_DISPLAY) {
-		const EGLNativeDisplayType desiredEGLDisplay =
-#ifdef RPI
-		EGL_DEFAULT_DISPLAY;
-#else
-		x11Display;
-#endif
-		eglDisplay = eglGetDisplay(desiredEGLDisplay);
-		if (eglDisplay == EGL_NO_DISPLAY) {
-			con_printf(CON_URGENT, "EGL: Error querying EGL Display");
-		}
-
-		EGLint ver_maj, ver_min;
-		if (!eglInitialize(eglDisplay, &ver_maj, &ver_min)) {
-			con_printf(CON_URGENT, "EGL: Error initializing EGL");
-		} else {
-			con_printf(CON_DEBUG, "EGL: Initialized, version: major %i minor %i", ver_maj, ver_min);
-		}
-	}
-
-	
-#ifdef RPI
-	if (rpi_setup_element(w,h,sdl_video_flags,1)) {
-		Error("RPi: Could not set up a %dx%d element\n", w, h);
-	}
-#endif
-
-	static EGLConfig eglConfig;
-	if (eglSurface == EGL_NO_SURFACE) {
-		static const EGLint configAttribs[]{
-			EGL_RED_SIZE, 5,
-			EGL_GREEN_SIZE, 6,
-			EGL_BLUE_SIZE, 5,
-			EGL_DEPTH_SIZE, 16,
-			EGL_SURFACE_TYPE, EGL_WINDOW_BIT,
-			EGL_RENDERABLE_TYPE, EGL_OPENGL_ES_BIT,
-			EGL_NONE, EGL_NONE
-		};
-		int iConfigs;
-		if (!eglChooseConfig(eglDisplay, configAttribs, &eglConfig, 1, &iConfigs) || (iConfigs != 1)) {
-			con_printf(CON_URGENT, "EGL: Error choosing config");
-		} else {
-			con_printf(CON_DEBUG, "EGL: config chosen");
-		}
-
-		// explicitly request a doublebuffering window
-		static const EGLint winAttribs[]{
-			EGL_RENDER_BUFFER, EGL_BACK_BUFFER, EGL_NONE, EGL_NONE
-		};
-#ifdef RPI
-		eglSurface = eglCreateWindowSurface(eglDisplay, eglConfig, static_cast<EGLNativeWindowType>(&nativewindow), winAttribs);
-#else
-		eglSurface = eglCreateWindowSurface(eglDisplay, eglConfig, x11Window, winAttribs);
-#endif
-		if ((!TestEGLError("eglCreateWindowSurface")) || eglSurface == EGL_NO_SURFACE) {
-			con_printf(CON_URGENT, "EGL: Error creating window surface");
-		} else {
-			con_printf(CON_DEBUG, "EGL: Created window surface");
-		}
-	}
-	
-	if (eglContext == EGL_NO_CONTEXT) {
-		// explicitly request an OpenGL ES 1.x context
-		static const EGLint contextAttribs[]{
-			EGL_CONTEXT_CLIENT_VERSION, 1, EGL_NONE, EGL_NONE
-		};
-		eglContext = eglCreateContext(eglDisplay, eglConfig, EGL_NO_CONTEXT, contextAttribs);
-		if ((!TestEGLError("eglCreateContext")) || eglContext == EGL_NO_CONTEXT) {
-			con_printf(CON_URGENT, "EGL: Error creating context");
-		} else {
-			con_printf(CON_DEBUG, "EGL: Created context");
-		}
-	}
-	
-	eglMakeCurrent(eglDisplay, eglSurface, eglSurface, eglContext);
-	if (!TestEGLError("eglMakeCurrent")) {
-		con_printf(CON_URGENT, "EGL: Error making current");
-	} else {
-		con_printf(CON_DEBUG, "EGL: made context current");
-	}
-#endif
 
 	const auto w640 = w / 640;
 	const auto h480 = h / 480;
@@ -509,60 +292,11 @@ namespace dcx {
 
 int gr_check_fullscreen(void)
 {
-#if SDL_MAJOR_VERSION == 1
-	return !!(sdl_video_flags & SDL_FULLSCREEN);
-#elif SDL_MAJOR_VERSION == 2
 	return !!(SDL_GetWindowFlags(g_pRebirthSDLMainWindow) & SDL_WINDOW_FULLSCREEN);
-#endif
 }
 
 void gr_toggle_fullscreen()
 {
-#if SDL_MAJOR_VERSION == 1
-	const auto local_sdl_video_flags = (sdl_video_flags ^= SDL_FULLSCREEN);
-	if (gl_initialized)
-	{
-		if (sdl_no_modeswitch == 0) {
-			auto gsm = Game_screen_mode;
-			const auto DbgBpp{CGameArg.DbgBpp};
-			if (!SDL_VideoModeOK(gsm.width, gsm.height, DbgBpp, local_sdl_video_flags))
-			{
-				con_printf(CON_URGENT, "Cannot set %ix%i. Fallback to 640x480", gsm.width, gsm.height);
-				gsm.width = 640;
-				gsm.height = 480;
-				Game_screen_mode = gsm;
-			}
-			if (!SDL_SetVideoMode(gsm.width, gsm.height, DbgBpp, local_sdl_video_flags))
-			{
-				Error("Could not set %dx%dx%d opengl video mode: %s\n", gsm.width, gsm.height, DbgBpp, SDL_GetError());
-			}
-		}
-#ifdef RPI
-		if (rpi_setup_element(SM_W(Game_screen_mode), SM_H(Game_screen_mode), local_sdl_video_flags, 1)) {
-			 Error("RPi: Could not set up %dx%d element\n", SM_W(Game_screen_mode), SM_H(Game_screen_mode));
-		}
-#endif
-	}
-
-	gr_remap_color_fonts();
-
-	if (gl_initialized) // update viewing values for menus
-	{
-		glMatrixMode(GL_PROJECTION);
-		glLoadIdentity();
-#if DXX_USE_OGLES
-		glOrthof(0.0, 1.0, 0.0, 1.0, -1.0, 1.0);
-#else
- 		glOrtho(0.0, 1.0, 0.0, 1.0, -1.0, 1.0);
-#endif
-		glMatrixMode(GL_MODELVIEW);
-		glLoadIdentity();//clear matrix
-		glEnable(GL_BLEND);
-		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-		ogl_smash_texture_list_internal();//if we are or were fullscreen, changing vid mode will invalidate current textures
-	}
-	CGameCfg.WindowMode = !(local_sdl_video_flags & SDL_FULLSCREEN);
-#elif SDL_MAJOR_VERSION == 2
 	const auto SDLWindow{g_pRebirthSDLMainWindow};
 	const auto is_fullscreen_before_change = SDL_GetWindowFlags(SDLWindow) & SDL_WINDOW_FULLSCREEN;
 	CGameCfg.WindowMode = !!is_fullscreen_before_change;
@@ -576,7 +310,6 @@ void gr_toggle_fullscreen()
 		SDL_SetWindowSize(SDLWindow, SM_W(mode), SM_H(mode));
 	}
 	gr_set_mode_from_window_size(SDLWindow);
-#endif
 }
 
 static void ogl_init_state(void)
@@ -646,75 +379,15 @@ static void ogl_tune_for_current(void)
 #endif
 }
 
-#if SDL_MAJOR_VERSION == 1
-// returns possible (fullscreen) resolutions if any.
-uint_fast32_t gr_list_modes(std::array<screen_mode, 50> &gsmodes)
-{
-	int modesnum{0};
-	constexpr Uint32 sdl_check_flags{ // always use Fullscreen as lead.
-		DXX_USE_OGLES
-			? SDL_FULLSCREEN
-			: (SDL_OPENGL | SDL_FULLSCREEN)
-	};
-
-	if (sdl_no_modeswitch) {
-		/* TODO: we could use the tvservice to list resolutions on the RPi */
-		return 0;
-	}
-
-	SDL_Rect **const modes{SDL_ListModes(NULL, sdl_check_flags)};
-	if (modes == nullptr) // check if we get any modes - if not, return 0
-		return 0;
-	if (modes == reinterpret_cast<SDL_Rect**>(-1))
-	{
-		return 0; // can obviously use any resolution... strange!
-	}
-	else
-	{
-		for (int i = 0; modes[i]; ++i)
-		{
-			if (modes[i]->w > 0xFFF0 || modes[i]->h > 0xFFF0 // resolutions saved in 32bits. so skip bigger ones (unrealistic in 2010) (changed to 0xFFF0 to fix warning)
-				|| modes[i]->w < 320 || modes[i]->h < 200) // also skip everything smaller than 320x200
-				continue;
-			gsmodes[modesnum].width = modes[i]->w;
-			gsmodes[modesnum].height = modes[i]->h;
-			modesnum++;
-			if (modesnum >= gsmodes.size()) // that really seems to be enough big boy.
-				break;
-		}
-		return modesnum;
-	}
-}
-#endif
 
 }
 
 namespace dsx {
 
-#if SDL_MAJOR_VERSION == 1
-static int gr_check_mode(const screen_mode mode)
-{
-	if (sdl_no_modeswitch == 0) {
-		return SDL_VideoModeOK(SM_W(mode), SM_H(mode), CGameArg.DbgBpp, sdl_video_flags);
-	} else {
-		// just tell the caller that any mode is valid...
-		return 32;
-	}
-}
-#endif
 
 int gr_set_mode(screen_mode mode)
 {
 	unsigned char *gr_bm_data;
-#if SDL_MAJOR_VERSION == 1
-	if (!gr_check_mode(mode))
-	{
-		con_printf(CON_URGENT, "Cannot set %ix%i. Fallback to 640x480", mode.width, mode.height);
-		mode.width = 640;
-		mode.height = 480;
-		Game_screen_mode = mode;
-	}
-#endif
 	const uint_fast32_t w = SM_W(mode), h = SM_H(mode);
 
 	gr_bm_data = grd_curscreen->sc_canvas.cv_bitmap.get_bitmap_data();//since we use realloc, we want to keep this pointer around.
@@ -782,11 +455,7 @@ void gr_set_attributes(void)
 	SDL_GL_SetAttribute(SDL_GL_ACCUM_BLUE_SIZE,0);
 	SDL_GL_SetAttribute(SDL_GL_ACCUM_ALPHA_SIZE,0);
 	SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER,1);
-#if SDL_MAJOR_VERSION == 1
-	SDL_GL_SetAttribute(SDL_GL_SWAP_CONTROL, CGameCfg.VSync);
-#elif SDL_MAJOR_VERSION == 2
 	SDL_GL_SetSwapInterval(CGameCfg.VSync ? 1 : 0);
-#endif
 	int buffers, samples;
 	if (CGameCfg.Multisample)
 	{
@@ -800,11 +469,9 @@ void gr_set_attributes(void)
 	SDL_GL_SetAttribute(SDL_GL_MULTISAMPLEBUFFERS, buffers);
 	SDL_GL_SetAttribute(SDL_GL_MULTISAMPLESAMPLES, samples);
 #else
-#if SDL_MAJOR_VERSION == 2
 	SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 1);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
-#endif
 #endif
 	ogl_smash_texture_list_internal();
 	gr_remap_color_fonts();
@@ -838,13 +505,6 @@ int gr_init()
 
 	gr_set_attributes();
 
-#if SDL_MAJOR_VERSION == 1
-	if (!CGameCfg.WindowMode && !CGameArg.SysWindow)
-		sdl_video_flags|=SDL_FULLSCREEN;
-
-	if (CGameArg.SysNoBorders)
-		sdl_video_flags|=SDL_NOFRAME;
-#elif SDL_MAJOR_VERSION == 2
 	assert(!g_pRebirthSDLMainWindow);
 	unsigned sdl_window_flags = SDL_WINDOW_OPENGL;
 	if (CGameArg.SysNoBorders)
@@ -864,7 +524,6 @@ int gr_init()
 		Error("Failed to create SDL GL context: %s", SDL_GetError());
 	if (const auto window_icon = SDL_LoadBMP(DXX_SDL_WINDOW_ICON_BITMAP))
 		SDL_SetWindowIcon(SDLWindow, window_icon);
-#endif
 
 	ogl_init_texture_list_internal();
 
@@ -926,18 +585,6 @@ void gr_close()
 		OpenGL_LoadLibrary(false, OglLibPath);
 #endif
 
-#if DXX_USE_OGLES && SDL_MAJOR_VERSION == 1
-	ogles_destroy();
-#ifdef RPI
-	con_printf(CON_DEBUG, "RPi: cleanuing up");
-	if (dispman_display != DISPMANX_NO_HANDLE) {
-		rpi_destroy_element();
-		con_printf(CON_DEBUG, "RPi: closing display");
-		vc_dispmanx_display_close(dispman_display);
-		dispman_display = DISPMANX_NO_HANDLE;
-	}
-#endif
-#endif
 }
 
 }

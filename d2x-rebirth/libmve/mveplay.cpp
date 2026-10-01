@@ -392,7 +392,6 @@ MVESTREAM::handle_result MVESTREAM::handle_mve_segment_initaudiobuffers(unsigned
 
 #if DXX_USE_SDLMIXER
 	else {
-#if SDL_MAJOR_VERSION == 2
 		int output_frequency;
 		Uint16 output_format;
 		int output_channels;
@@ -408,7 +407,6 @@ MVESTREAM::handle_result MVESTREAM::handle_mve_segment_initaudiobuffers(unsigned
 			mve_audio_spec = {};
 		}
 		else
-#endif
 		{
 			// MD2211: using the same old SDL audio callback as a postmixer in SDL_mixer
 			Mix_SetPostMix(s.callback, s.userdata);
@@ -513,43 +511,12 @@ MVESTREAM::handle_result MVESTREAM::handle_mve_segment_audioframedata(const mve_
 			// MVE segment boundaries.
 #if DXX_USE_SDLMIXER
 			if (!CGameArg.SndDisableSdlMixer) {
-#if SDL_MAJOR_VERSION == 2
 				static_cast<void>(mve_audio_spec);
 				if (SDL_AudioStreamPut(mve_audio_stream.get(), p.get(), nsamp))
 					con_printf(CON_URGENT, "%s:%u: SDL_AudioStreamPut failed: %s", __FILE__, __LINE__, SDL_GetError());
 				else
 					drain_mve_audio_stream();
 				p = {};
-#else
-				// build converter: in = MVE format, out = SDL_mixer output
-				int out_freq;
-				Uint16 out_format;
-				int out_channels;
-				Mix_QuerySpec(&out_freq, &out_format, &out_channels); // get current output settings
-
-				SDL_AudioCVT cvt{};
-				SDL_BuildAudioCVT(&cvt, mve_audio_spec->format, mve_audio_spec->channels, mve_audio_spec->freq,
-					out_format, out_channels, out_freq);
-
-				const auto cvtbuf = std::make_unique<uint8_t[]>(nsamp * cvt.len_mult);
-				cvt.buf = cvtbuf.get();
-				cvt.len = nsamp;
-
-				// read the audio buffer into the conversion buffer
-				memcpy(cvt.buf, p.get(), nsamp);
-
-				// do the conversion
-				if (SDL_ConvertAudio(&cvt))
-					con_printf(CON_URGENT, "%s:%u: SDL_ConvertAudio failed: nsamp=%u out_format=%i out_channels=%i out_freq=%i", __FILE__, __LINE__, nsamp, out_format, out_channels, out_freq);
-				else
-				{
-				// copy back to the audio buffer
-					const std::size_t converted_buffer_size = cvt.len_cvt;
-					p = {}; // free the old audio buffer
-					p = {converted_buffer_size / 2};
-					memcpy(p.get(), cvt.buf, converted_buffer_size);
-				}
-#endif
 			}
 #endif
 			if (p.get())
