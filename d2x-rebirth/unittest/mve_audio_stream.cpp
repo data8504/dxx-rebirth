@@ -230,4 +230,33 @@ BOOST_FIXTURE_TEST_CASE(movie_stream_survives_segment_gaps_and_detaches_before_f
 	BOOST_REQUIRE(MIX_StopTrack(track, 0));
 	BOOST_TEST(!MIX_TrackPlaying(track));
 }
+
+BOOST_FIXTURE_TEST_CASE(music_completion_can_restart_and_explicit_stop_suppresses_hook, mixer_fixture)
+{
+	const std::vector<float> pcm(1024, .25f);
+	mixer_audio_ptr audio{MIX_LoadRawAudio(mixer, pcm.data(), pcm.size() * sizeof(float), &spec)};
+	BOOST_REQUIRE(audio);
+	BOOST_REQUIRE(MIX_SetTrackAudio(track, audio.get()));
+	unsigned completions{};
+	const auto finished = [](void *const userdata, MIX_Track *const track)
+	{
+		auto &count = *static_cast<unsigned *>(userdata);
+		if (++count == 1)
+			MIX_PlayTrack(track, 0);
+	};
+	BOOST_REQUIRE(MIX_SetTrackStoppedCallback(track, finished, &completions));
+	BOOST_REQUIRE(MIX_PlayTrack(track, 0));
+	/* The game removes the hook before explicitly stopping music. */
+	BOOST_REQUIRE(MIX_SetTrackStoppedCallback(track, nullptr, nullptr));
+	BOOST_REQUIRE(MIX_StopTrack(track, 0));
+	BOOST_TEST(completions == 0u);
+	BOOST_REQUIRE(MIX_SetTrackStoppedCallback(track, finished, &completions));
+	BOOST_REQUIRE(MIX_PlayTrack(track, 0));
+	std::vector<float> output(3072);
+	BOOST_REQUIRE(MIX_Generate(mixer, output.data(), output.size() * sizeof(float)) >= 0);
+	BOOST_TEST(completions == 2u);
+	BOOST_TEST(!MIX_TrackPlaying(track));
+	BOOST_TEST(std::all_of(output.begin(), output.begin() + 2048, [](const float value) { return value == .25f; }));
+	BOOST_TEST(std::all_of(output.begin() + 2048, output.end(), [](const float value) { return value == 0.f; }));
+}
 #endif
