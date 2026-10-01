@@ -15,7 +15,7 @@
 #include <vector>
 #include <stdlib.h>
 #include <string.h>
-#include <SDL_stdinc.h>
+#include <SDL3/SDL_stdinc.h>
 #include "physfsx.h"
 #include "args.h"
 #include "u_mem.h"

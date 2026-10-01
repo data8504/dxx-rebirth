@@ -14,7 +14,7 @@
 
 #include <array>
 #include <climits>
-#include <SDL_version.h>
+#include <SDL3/SDL_version.h>
 #include "dxxsconf.h"
 #include "dsx-ns.h"
 
