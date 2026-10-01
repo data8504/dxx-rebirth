@@ -189,18 +189,12 @@ static std::array<d_physical_joystick, DXX_MAX_JOYSTICKS> SDL_Joysticks;
 
 static d_physical_joystick *find_joystick(const decltype(SDL_JoyButtonEvent::which) which)
 {
-#if SDL_MAJOR_VERSION == 1
-	if (which >= num_joysticks)
-		return nullptr;
-	return &SDL_Joysticks[which];
-#else
 	for (auto &joystick : partial_range(SDL_Joysticks, static_cast<unsigned>(num_joysticks)))
 	{
 		if (SDL_JoystickInstanceID(joystick.handle().get()) == which)
 			return &joystick;
 	}
 	return nullptr;
-#endif
 }
 
 }
@@ -380,21 +374,15 @@ void joy_init()
 	unsigned joystick_n_buttons{0}, joystick_n_axes = 0;
 	range_for (const unsigned i, xrange(n))
 	{
-#if SDL_MAJOR_VERSION == 2
 		if (SDL_IsGameController(i))
 		{
 			con_printf(CON_NORMAL, "sdl-gamecontroller: joystick #%d is a gamecontroller", i);
 			continue;
 		}
-#endif
 		auto &joystick = SDL_Joysticks[num_joysticks];
 		const auto handle = SDL_JoystickOpen(i);
 		joystick.handle().reset(handle);
-#if SDL_MAJOR_VERSION == 1
-		con_printf(CON_NORMAL, "sdl-joystick %d: %s", i, SDL_JoystickName(i));
-#else
 		con_printf(CON_NORMAL, "sdl-joystick %d: %s", i, SDL_JoystickName(handle));
-#endif
 		if (handle)
 		{
 #if DXX_MAX_AXES_PER_JOYSTICK
@@ -541,11 +529,7 @@ bool joy_translate_menu_key(const d_event &event) {
 			return true;
 		}
 	}
-#if SDL_MAJOR_VERSION == 2
 	return gamecontroller_translate_menu_key(e.button);
-#else
-	return false;
-#endif
 }
 #endif
 

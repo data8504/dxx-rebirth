@@ -12,9 +12,7 @@
 #include "fwd-event.h"
 #include "maths.h"
 
-#if SDL_MAJOR_VERSION == 2
 #include <SDL_video.h>
-#endif
 
 namespace dcx {
 
@@ -40,9 +38,7 @@ enum class event_type : uint8_t
 	key_release,
 
 	window_created,
-#if SDL_MAJOR_VERSION == 2
 	window_resize,
-#endif
 	window_activated,
 	window_deactivated,
 	window_draw,
@@ -116,7 +112,6 @@ struct d_select_event : d_event
 	}
 };
 
-#if SDL_MAJOR_VERSION == 2
 struct d_window_size_event : d_event
 {
 	Sint32 width;
@@ -126,7 +121,6 @@ struct d_window_size_event : d_event
 	{
 	}
 };
-#endif
 
 struct d_event_begin_loop : d_event
 {

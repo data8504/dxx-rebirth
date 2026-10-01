@@ -119,10 +119,8 @@ void kconfig_begin_loop(control_info &Controls)
 namespace {
 
 #if DXX_MAX_JOYSTICKS
-#if SDL_MAJOR_VERSION == 2
 // GameController axis-as-button indices for use in default key settings
 constexpr unsigned GC_AXIS_BUTTON(unsigned axis_id) { return SDL_CONTROLLER_BUTTON_MAX + (axis_id * 2); }
-#endif
 #endif
 
 struct kc_mitem {
@@ -207,9 +205,7 @@ struct kc_menu : window
 	std::array<int, JOY_MAX_AXES>	old_jaxis;
 #endif
 #if DXX_MAX_BUTTONS_PER_JOYSTICK || DXX_MAX_HATS_PER_JOYSTICK
-#if SDL_MAJOR_VERSION == 2
 	fix64 start_press_time{0};	// timestamp of Start button press for long-press detection
-#endif
 #endif
 	virtual window_event_result event_handler(const d_event &) override;
 };
@@ -543,7 +539,6 @@ constexpr struct player_config::KeySettings DefaultKeySettings{
 };
 
 #if DXX_MAX_JOYSTICKS
-#if SDL_MAJOR_VERSION == 2
 constexpr enumerated_array<uint8_t, MAX_CONTROLS, dxx_kconfig_ui_kc_joystick> DefaultKeySettingsGameController{{{
 	/* SDL2 GameController defaults (standardized button indices)
 	 *  D-pad pitch/turn handled via keyboard key mapping
@@ -669,7 +664,6 @@ constexpr enumerated_array<uint8_t, MAX_CONTROLS, dxx_kconfig_ui_kc_joystick> De
 		0xff, 0xff, 0xff, 0xff, 0xff
 #endif
 }}};
-#endif
 #endif
 
 namespace {
@@ -811,14 +805,12 @@ static const char *get_item_text(const kc_item &item, const kc_mitem &mitem, cha
 				return mouseaxis_text[mitem.value];
 #if DXX_MAX_BUTTONS_PER_JOYSTICK || DXX_MAX_HATS_PER_JOYSTICK
 			case kc_type::joy_button:
-#if SDL_MAJOR_VERSION == 2
 				if (num_controllers)
 				{
 					if (mitem.value < gcbutton_text.size()) [[likely]]
 						return &gcbutton_text[mitem.value][0];
 				}
 				else
-#endif
 				{
 					if (mitem.value < joybutton_text.size()) [[likely]]
 						return &joybutton_text[mitem.value][0];
@@ -833,14 +825,12 @@ static const char *get_item_text(const kc_item &item, const kc_mitem &mitem, cha
 #endif
 #if DXX_MAX_AXES_PER_JOYSTICK
 			case kc_type::joy_axis:
-#if SDL_MAJOR_VERSION == 2
 				if (num_controllers)
 				{
 					if (mitem.value < gamecontroller_axis_text.size()) [[likely]]
 						return &gamecontroller_axis_text[mitem.value][0];
 				}
 				else
-#endif
 				{
 					if (mitem.value < joyaxis_text.size()) [[likely]]
 						return &joyaxis_text[mitem.value][0];
@@ -901,11 +891,9 @@ static void kconfig_draw(kc_menu &menu)
 	gr_set_fontcolor(canvas, BM_XRGB(28, 28, 28), -1);
 	gr_string(canvas, game_font, 0x8000, fspacy(21),
 #if DXX_MAX_JOYSTICKS
-#if SDL_MAJOR_VERSION == 2
 		num_controllers
 		? "Enter/A changes, ctrl-d/R3 deletes, ctrl-r/Start(hold) resets, ESC/B exits"
 		:
-#endif
 #endif
 		"Enter changes, ctrl-d deletes, ctrl-r resets defaults, ESC exits"
 	);
@@ -1153,13 +1141,11 @@ static void kc_reset_to_defaults(kc_menu &menu)
 #if DXX_MAX_JOYSTICKS
 	else if (menu.items == kc_joystick)
 	{
-#if SDL_MAJOR_VERSION == 2
 		if (num_controllers)
 		{
 			reset_mitem_values(kcm_joystick, DefaultKeySettingsGameController);
 			return;
 		}
-#endif
 		reset_mitem_values(kcm_joystick, DefaultKeySettings.Joystick);
 	}
 #endif
@@ -1235,13 +1221,11 @@ window_event_result kc_menu::event_handler(const d_event &event)
 #if DXX_MAX_BUTTONS_PER_JOYSTICK
 	// In the kconfig menu, intercept Start (long-press reset) and R3 (delete binding)
 	// before joy_translate_menu_key would consume them via gc_key_map.
-#if SDL_MAJOR_VERSION == 2
 	const bool skip_translate = !changing &&
 		(event.type == event_type::joystick_button_down || event.type == event_type::joystick_button_up) &&
 		(event_joystick_get_button(event) == SDL_CONTROLLER_BUTTON_START ||
 		 event_joystick_get_button(event) == SDL_CONTROLLER_BUTTON_RIGHTSTICK);
 	if (!skip_translate)
-#endif
 	if (!changing && joy_translate_menu_key(event))
 		return window_event_result::handled;
 #endif
@@ -1288,7 +1272,6 @@ window_event_result kc_menu::event_handler(const d_event &event)
 		case event_type::joystick_button_down:
 			if (changing && items[citem].type == kc_type::joy_button)
 				kc_change_joybutton(*this, event, mitems[citem]);
-#if SDL_MAJOR_VERSION == 2
 			else if (!changing)
 			{
 				const auto button = event_joystick_get_button(event);
@@ -1303,9 +1286,7 @@ window_event_result kc_menu::event_handler(const d_event &event)
 					return window_event_result::handled;
 				}
 			}
-#endif
 			break;
-#if SDL_MAJOR_VERSION == 2
 		case event_type::joystick_button_up:
 			if (!changing && event_joystick_get_button(event) == SDL_CONTROLLER_BUTTON_START && start_press_time)
 			{
@@ -1319,7 +1300,6 @@ window_event_result kc_menu::event_handler(const d_event &event)
 				return window_event_result::handled;
 			}
 			break;
-#endif
 #endif
 
 #if DXX_MAX_AXES_PER_JOYSTICK

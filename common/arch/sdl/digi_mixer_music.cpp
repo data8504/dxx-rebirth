@@ -29,14 +29,6 @@
 #include "console.h"
 #include "physfsrwops.h"
 
-#if SDL_MIXER_MAJOR_VERSION == 1
-/* SDL_mixer-1 is inconsistent in its memory management.  On success, it takes
- * ownership.  On failure, it may free the resource immediately or may leave it
- * allocated, with no indication which was done.  Therefore, for simplicity,
- * always manage the object in Rebirth code.
- */
-#define DXX_USE_SDL_RWOPS_MANAGEMENT	0
-#else
 /* SDL_mixer-2 (and possibly later versions, though that has not been checked)
  * are consistent, and can handle the memory management internally.  For
  * completeness, provide a compile-time knob for Rebirth to manage this, but
@@ -44,7 +36,6 @@
  */
 #ifndef DXX_USE_SDL_RWOPS_MANAGEMENT
 #define DXX_USE_SDL_RWOPS_MANAGEMENT	1
-#endif
 #endif
 
 namespace dcx {
