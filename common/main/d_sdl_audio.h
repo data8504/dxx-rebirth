@@ -5,19 +5,22 @@
  */
 
 #pragma once
-#include <SDL_audio.h>
+#include <SDL3/SDL_audio.h>
 
 namespace dcx {
 
 struct RAII_SDL_LockAudio
 {
-	RAII_SDL_LockAudio()
+	SDL_AudioStream *const stream;
+	explicit RAII_SDL_LockAudio(SDL_AudioStream *const s) : stream{s}
 	{
-		SDL_LockAudio();
+		if (stream)
+			SDL_LockAudioStream(stream);
 	}
 	~RAII_SDL_LockAudio()
 	{
-		SDL_UnlockAudio();
+		if (stream)
+			SDL_UnlockAudioStream(stream);
 	}
 	RAII_SDL_LockAudio(const RAII_SDL_LockAudio &) = delete;
 	RAII_SDL_LockAudio &operator=(const RAII_SDL_LockAudio &) = delete;
