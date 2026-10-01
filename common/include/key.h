@@ -26,8 +26,8 @@ COPYRIGHT 1993-1999 PARALLAX SOFTWARE CORPORATION.  ALL RIGHTS RESERVED.
 #pragma once
 
 #include <cstdint>
-#include <SDL_version.h>
-#include <SDL_keyboard.h>
+#include <SDL3/SDL_version.h>
+#include <SDL3/SDL_keyboard.h>
 #include "pstypes.h"
 #include "maths.h"
 #include "event.h"
@@ -87,6 +87,7 @@ extern pressed_keys keyd_pressed;
 void key_toggle_repeat0();
 void key_toggle_repeat1();
 window_event_result key_handler(const SDL_KeyboardEvent *kevent);
+window_event_result key_text_handler(const char *text);
 
 // for key_ismodlck
 #define KEY_ISMOD	1
