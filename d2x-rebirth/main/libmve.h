@@ -8,7 +8,7 @@
 #define _LIBMVE_H
 
 #include <memory>
-#include <SDL.h>
+#include <SDL3/SDL.h>
 #include "dsx-ns.h"
 
 namespace dsx {

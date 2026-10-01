@@ -18,22 +18,30 @@
 #include <span>
 #include <vector>
 #include "dxxsconf.h"
-#include <SDL.h>
+#include <SDL3/SDL.h>
+#if DXX_USE_SDLMIXER
+#include <SDL3_mixer/SDL_mixer.h>
+#endif
 #include "d_uspan.h"
 #include "physfsrwops.h"
 
 namespace dsx {
 
-#if DXX_USE_SDLMIXER && SDL_MAJOR_VERSION == 2
 struct MVE_audio_stream_deleter
 {
 	static void operator()(SDL_AudioStream *const stream)
 	{
-		SDL_FreeAudioStream(stream);
+		SDL_DestroyAudioStream(stream);
 	}
 };
 
 using MVE_audio_stream_ptr = std::unique_ptr<SDL_AudioStream, MVE_audio_stream_deleter>;
+#if DXX_USE_SDLMIXER
+struct MVE_audio_track_deleter
+{
+	static void operator()(MIX_Track *const track) { MIX_DestroyTrack(track); }
+};
+using MVE_audio_track_ptr = std::unique_ptr<MIX_Track, MVE_audio_track_deleter>;
 #endif
 
 enum class mve_opcode : uint8_t
@@ -126,9 +134,6 @@ struct MVESTREAM
 	std::span<const uint8_t> pCurMap{};
 	std::vector<unsigned char> vBuffers{};
 	std::unique_ptr<SDL_AudioSpec> mve_audio_spec;
-#if DXX_USE_SDLMIXER && SDL_MAJOR_VERSION == 2
-	MVE_audio_stream_ptr mve_audio_stream;
-#endif
 	const MVE_play_sounds mve_audio_enabled;
 	bool mve_audio_playing{};
 	uint8_t timer_created{};
@@ -150,10 +155,12 @@ struct MVESTREAM
 	unsigned char *vBackBuf1{};
 	unsigned char *vBackBuf2{};
 	std::array<::dcx::unique_span<int16_t>, 64> mve_audio_buffers;
-	bool queue_mve_audio_buffer(::dcx::unique_span<int16_t> &&buffer);
-#if DXX_USE_SDLMIXER && SDL_MAJOR_VERSION == 2
-	bool drain_mve_audio_stream();
+	/* Destroy the track, then the stream, before their callback state. */
+	MVE_audio_stream_ptr mve_audio_stream;
+#if DXX_USE_SDLMIXER
+	MVE_audio_track_ptr mve_audio_track;
 #endif
+	bool queue_mve_audio_buffer(::dcx::unique_span<int16_t> &&buffer);
 
 	handle_result handle_mve_segment_endofstream();
 	handle_result handle_mve_segment_endofchunk();
@@ -195,6 +202,6 @@ void mve_reset(MVESTREAM *movie);
  */
 MVESTREAM::handle_result mve_play_next_chunk(MVESTREAM &movie);
 
-unsigned MovieFileRead(SDL_RWops *handle, std::span<uint8_t> buf);
+unsigned MovieFileRead(SDL_IOStream *handle, std::span<uint8_t> buf);
 
 }
