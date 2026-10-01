@@ -16,14 +16,17 @@ The DXX-Rebirth maintainers have no control over the sites linked below.  The ma
 	  that it should be able to compile Rebirth.  However, due to limitations
 	  of the Visual Studio installation environment, the core team does not
 	  use, test, or support Visual Studio.
-* [SDL 2](https://www.libsdl.org/).
+* [SDL 3.2 or later](https://www.libsdl.org/).
 * [PhysicsFS](https://icculus.org/physfs/).
 PhysFS 3.x or later is required.
 
+SDL3 is the sole supported SDL version on all platforms. There is no SDL
+version-selection build option; `sdl2=...` is an unknown option.
+
 Optional, but recommended:
 
-* [SDL\_image 2](https://www.libsdl.org/projects/SDL_image/).
-* [SDL\_mixer 2](https://www.libsdl.org/projects/SDL_mixer/).
+* [SDL\_image 3.2 or later](https://www.libsdl.org/projects/SDL_image/).
+* [SDL\_mixer 3.2 or later](https://www.libsdl.org/projects/SDL_mixer/).
 * [libpng](http://www.libpng.org/).
 
 Unless otherwise noted, using the newest release available is recommended.  For example, prefer gcc-16 to gcc-15, even though both should work.
@@ -55,8 +58,7 @@ If you are not sure whether your system is Windows x86 or Windows x64, use the p
 * C++ compiler
     * mingw-gcc: [Getting Started](http://www.mingw.org/wiki/Getting_Started) |
 	[Direct download](https://sourceforge.net/projects/mingw/files/latest/download)
-* [SDL 2 x86 zip](https://www.libsdl.org/release/SDL2-2.32.10-win32-x86.zip) |
-[SDL 2 x64 zip](https://www.libsdl.org/release/SDL2-2.32.10-win32-x64.zip)
+* [SDL3 development packages](https://github.com/libsdl-org/SDL/releases).
 * No published PhysFS package for Windows is known.
 You must [build it](https://hg.icculus.org/icculus/physfs/raw-file/bf155bd2127b/INSTALL.txt)
 from [source](https://github.com/icculus/physfs/archive/refs/tags/release-3.2.0.zip).
@@ -66,7 +68,7 @@ However, building from source is recommended to ensure a consistent
 environment.
 
 ### MSYS2/mingw-w64 (Windows alternate method)
-* `pacman -S git ${MINGW_PACKAGE_PREFIX}-{gcc,pkgconf,scons,SDL,SDL_image,SDL_mixer,libpng,physfs}`
+* `pacman -S git ${MINGW_PACKAGE_PREFIX}-{gcc,pkgconf,scons,sdl3,sdl3-image,sdl3-mixer,libpng,physfs}`
 
 ### Linux
 Install the listed prerequisites through your system package manager.
@@ -74,40 +76,46 @@ Install the listed prerequisites through your system package manager.
 * An RPM spec file is in `contrib/rpm/`
 * Gentoo ebuild files are in `contrib/gentoo/`
 
+The Arch and RPM recipes require a local source archive. Each recipe contains
+the `git archive` command and archive prefix it expects. The Gentoo live
+recipe selects its source through `EGIT_REPO_URI` and `EGIT_BRANCH`; override
+both variables together to use another SDL3 source branch.
+
 #### Arch
 * **pacman -S
  base-devel
  scons
- sdl
- sdl\_image
- sdl\_mixer
+ sdl3
+ sdl3\_image
+ sdl3\_mixer
  physfs**
 
 #### Fedora
 * **yum install
  gcc-c++
  scons
- SDL-devel
- SDL\_image-devel
- SDL\_mixer-devel
+ SDL3-devel
+ SDL3\_image-devel
+ SDL3\_mixer-devel
  physfs-devel**
 
 #### Gentoo
 * **emerge --ask --verbose --noreplace
  dev-util/scons
- media-libs/libsdl
- media-libs/sdl-image
- media-libs/sdl-mixer
+ media-libs/libsdl3
+ media-libs/sdl3-image
+ media-libs/sdl3-mixer
  dev-games/physfs**
 
 #### Ubuntu
 * **apt-get install
  build-essential
  scons
- libsdl1.2-dev
- libsdl-image1.2-dev
- libsdl-mixer1.2-dev
+ libsdl3-dev
+ libsdl3-image-dev
  libphysfs-dev**
+
+Ubuntu releases without SDL3_mixer packages can build it using `contrib/ci/build-sdl3-mixer.sh /absolute/install/prefix /absolute/build/directory`. Install CMake, Ninja, curl, and development packages for the desired music decoders first. Add the installed `lib/pkgconfig` directory to `PKG_CONFIG_PATH` and `lib` to `LD_LIBRARY_PATH` when configuring and running a build. See the Linux workflow for the complete decoder dependency list.
 
 ### Mac OS X
 Install the listed prerequisites through your preferred package manager.
@@ -121,8 +129,6 @@ The Mac OS X Command Line Tools are required.  Install them by running
 from the Terminal.  This may need to be done after each major OS upgrade as well.
 
 DXX-Rebirth can be built from the Terminal (via SCons) without Xcode; to build using Xcode requires Xcode to be installed.
-
-When building for Mac OS X, only SDL 2 is currently supported, as SDL 1.2 has long-standing issues with modern versions of the operating system.  Terminal builds for Mac OS X default to SDL 2, which is equivalent to passing **sdl2=True** as a parameter to the SCons command.
 
 **Note:** If intending to cross-compile from Linux to macOS, information about this process can be found at [macOS_Cross_Compilation.markdown](macOS_Cross_Compilation.markdown).
 
@@ -144,7 +150,7 @@ If unspecified, **SConstruct** uses $CXX for the compiler, $CPPFLAGS for preproc
 * **LDFLAGS='**_flags_**'** - flags for linker
 * **lto=1** - enable Link Time Optimization
 * **sdlmixer=1** - enable support for SDL\_mixer
-* **builddir=**_path_ - set directory for build outputs; defaults to "."
+* **builddir=**_path_ - set directory for build outputs; defaults to `build/`.
 * **builddir\_prefix=**_path_ - Developer option; set builddir to builddir\_prefix plus a path derived from build options.
 Use this to build multiple targets without picking specific paths for each one.
 The generated path is stable across multiple runs with the same options.
@@ -153,14 +159,24 @@ Packaging scripts should use **builddir** with manually chosen directories.
 * **prefix=**_path_ - (Linux only); equivalent to **--prefix** in Autoconf
 * **sharepath=**_path_ - (Linux only); sets system directory to search for game data
 
+Use separate build directories for different configurations. When **builddir**
+is an absolute path, name the executable targets explicitly; the default `.`
+target does not descend into directories outside the source tree. For example:
+
+```sh
+scons builddir=/absolute/build/path \
+    /absolute/build/path/d1x-rebirth/d1x-rebirth \
+    /absolute/build/path/d2x-rebirth/d2x-rebirth
+```
+
 The build system supports building multiple targets in parallel.  This is primarily useful for developers, but can also be used by packagers to create secondary builds with different features enabled.  To use it, run **scons** *game*=*profile[,profile...]*.  **SConstruct** will search each profile for the known options.  The first match wins.  For example:
 
-        scons dxx=gcc16,e, d2x=gcc15,sdl2, \
-            gcc16_CXX=/path/to/gcc-13 \
-            gcc15_CXX=/path/to/gcc-12 \
-            e_editor=1 sdl2_sdl2=1
+        scons dxx=gcc16,e, d2x=gcc15,soft, \
+            gcc16_CXX=/path/to/gcc-16 \
+            gcc15_CXX=/path/to/gcc-15 \
+            e_editor=1 soft_opengl=0
 
-This tells **SConstruct** to build both games (**dxx**) with the profiles **gcc16**, **e**, *empty* and also to build D2X-Rebirth (**d2x**) with the profiles **gcc15**, **sdl2**, *empty*.  Profiles **gcc16** and **gcc15** define private values for **CXX**, so the default value of **CXX** is ignored.  Profile **e** enables the **editor** option, which builds features used by players who want to create their own levels.  Profile **sdl2** sets the **sdl2** option to true, which produces a build that uses libSDL2 instead of libSDL.  Profile *empty* is the default namespace, so CPPFLAGS, CXXFLAGS, etc. are found when it is searched.  Since these values were not assigned, they are drawn from the corresponding environment variables.
+This tells **SConstruct** to build both games (**dxx**) with the profiles **gcc16**, **e**, *empty* and also to build D2X-Rebirth (**d2x**) with the profiles **gcc15**, **soft**, *empty*.  Profiles **gcc16** and **gcc15** define private values for **CXX**, so the default value of **CXX** is ignored.  Profile **e** enables the **editor** option, which builds features used by players who want to create their own levels.  Profile **soft** sets **opengl=0**, which selects the software renderer. Both renderers use SDL3.  Profile *empty* is the default namespace, so CPPFLAGS, CXXFLAGS, etc. are found when it is searched.  Since these values were not assigned, they are drawn from the corresponding environment variables.
 
 The build system supports specifying a group of closely related targets.  This is mostly redundant on shells with brace expansion support, but can be easier to type.  For example:
 
@@ -212,13 +228,12 @@ MSYS2 offers its users three terminal environments: msys2, for building with POS
 * In either a mingw32 or mingw64 (not msys2) terminal:
 
       pacman -Syuu  # update MSYS2, as needed
-      pacman -S --needed git ${MINGW_PACKAGE_PREFIX}-{gcc,pkgconf,scons,SDL,SDL_image,SDL_mixer,libpng,physfs}
-        #  ^ substitute SDL2 for SDL if desired
+      pacman -S --needed git ${MINGW_PACKAGE_PREFIX}-{gcc,pkgconf,scons,sdl3,sdl3-image,sdl3-mixer,libpng,physfs}
       git clone https://github.com/dxx-rebirth/dxx-rebirth.git
       cd dxx-rebirth
       scons
-        # Or (for example) to build d1x only, with SDL 2, with lower process priority, on all cores:
-      time nice scons -j$(nproc) sdl2=1 d1x=1
+        # Or (for example) to build d1x only, with SDL3, with lower process priority, on all cores:
+      time nice scons -j$(nproc) d1x=1
 
 * A locally built executable will run anywhere if it's invoked from inside the appropriate mingw32 or mingw64 terminal. To run it instead directly in Windows, either:
     1. The linked mingw-w64 libraries will need to be added to PATH (See [contrib/msys2](contrib/msys2) for working example batch files); or
@@ -228,3 +243,50 @@ MSYS2 offers its users three terminal environments: msys2, for building with POS
 For Windows and Linux, DXX-Rebirth installs only the main game binary.  The binary can be run from anywhere and can be installed by copying the game binary.  The game does not inspect the name of its binary.  You may rename the output after compilation without affecting the game.
 
 As a convenience, if **register\_install\_target=True**, **SConstruct** registers a pseudo-target named **install** which copies the compiled files to *BINDIR*, as modified by the SCons option **--install-sandbox**.  By default, **register\_install\_target=True**, the sandbox prefix path is empty, and *BINDIR* is *PREFIX*__/bin__, which expands to **/usr/local/bin**.
+
+## Testing
+
+Install Boost.Test headers and the `boost_unit_test_framework` library, then
+enable and run the native regression suites:
+
+```sh
+scons register_runtime_test_link_targets=1 check
+```
+
+The suites cover engine logic, virtual-device input and saved binding indices,
+text and modifier handling, fractional mouse motion, PhysicsFS IO streams,
+indexed surfaces and SDL3 audio stream/mixer lifetimes. The SDL input, video
+and audio tests use dummy drivers and do not require game data or a display
+server. The input suite requires joystick support (`max_joysticks` greater
+than zero). Mixer-specific audio cases require `sdlmixer=1`.
+
+Compile each header independently with:
+
+```sh
+scons check_header_includes=1 \
+    build/common/check_header_includes \
+    build/d1x-rebirth/check_header_includes \
+    build/d2x-rebirth/check_header_includes
+```
+
+Adjust the header target paths when using a different **builddir**. The `check`
+target executes native test programs; it does not run cross-compiled targets.
+
+## Runtime libraries
+
+Both the OpenGL and software renderers use SDL3. SDL3_image supplies PCX
+decoding; with `sdlimage=0`, PCX artwork uses a blank fallback. `sdlmixer=0`
+selects builtin audio. The `emulate_sdl1` resampler is an internal audio
+algorithm, not an SDL1 dependency.
+
+SDL3_mixer MIDI playback requires instrument configuration. Timidity uses
+`TIMIDITY_CFG` or its system configuration; FluidSynth requires a soundfont.
+Native Windows HMP and CD playback use separate platform backends.
+`adlmidi=runtime` enables the dynamically loaded ADLMIDI path; playback
+requires its library to be available at runtime.
+
+Packages must include decoder libraries loaded dynamically as well as linked
+SDL libraries. The Windows packaging script collects mixer codec DLLs and
+their dependencies. For linker-based AppImage or macOS bundle collection,
+build SDL3_mixer with `SDLMIXER_DEPS_SHARED=OFF` so its decoder dependencies
+appear as library imports. The Linux CI mixer helper uses this configuration.
