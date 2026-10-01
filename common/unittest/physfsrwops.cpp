@@ -112,7 +112,6 @@ public:
 
 }
 
-#if SDL_MAJOR_VERSION == 2
 BOOST_FIXTURE_TEST_CASE(size_preserves_position, physfsrwops_test_fixture)
 {
 	auto rwops{open()};
@@ -120,7 +119,6 @@ BOOST_FIXTURE_TEST_CASE(size_preserves_position, physfsrwops_test_fixture)
 	BOOST_TEST(SDL_RWsize(rwops.get()) == 7);
 	BOOST_TEST(SDL_RWtell(rwops.get()) == 2);
 }
-#endif
 
 BOOST_FIXTURE_TEST_CASE(read_returns_complete_object_count, physfsrwops_test_fixture)
 {
@@ -150,7 +148,6 @@ BOOST_FIXTURE_TEST_CASE(zero_length_read_does_not_move_position, physfsrwops_tes
 	BOOST_TEST(SDL_RWtell(rwops.get()) == 0);
 }
 
-#if SDL_MAJOR_VERSION == 2
 BOOST_FIXTURE_TEST_CASE(read_rejects_size_product_overflow, physfsrwops_test_fixture)
 {
 	auto rwops{open()};
@@ -161,7 +158,6 @@ BOOST_FIXTURE_TEST_CASE(read_rejects_size_product_overflow, physfsrwops_test_fix
 	BOOST_TEST(SDL_GetError()[0] != '\0');
 	BOOST_TEST(SDL_RWtell(rwops.get()) == 0);
 }
-#endif
 
 BOOST_FIXTURE_TEST_CASE(write_error_returns_zero_objects, physfsrwops_test_fixture)
 {

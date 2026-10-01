@@ -301,11 +301,7 @@ window_event_result movie::event_handler(const d_event &event)
 		case event_type::joystick_button_down:
 		{
 			const auto btn = event_joystick_get_button(event);
-#if SDL_MAJOR_VERSION == 2
 			if (btn == SDL_CONTROLLER_BUTTON_B || btn == SDL_CONTROLLER_BUTTON_BACK)
-#else
-			if (btn == 1)
-#endif
 				return window_event_result::close;
 			break;
 		}

@@ -42,7 +42,6 @@ struct event_poll_state
 
 }
 
-#if SDL_MAJOR_VERSION == 2
 extern SDL_Window *g_pRebirthSDLMainWindow;
 
 static void windowevent_handler(const SDL_WindowEvent &windowevent)
@@ -57,7 +56,6 @@ static void windowevent_handler(const SDL_WindowEvent &windowevent)
 			}
 	}
 }
-#endif
 
 namespace {
 
@@ -88,11 +86,7 @@ window_event_result event_poll()
 		std::array<SDL_Event, 128> events;
 
 		SDL_PumpEvents();
-#if SDL_MAJOR_VERSION == 1
-		const auto peep = SDL_PeepEvents(events.data(), events.size(), SDL_GETEVENT, SDL_ALLEVENTS);
-#elif SDL_MAJOR_VERSION == 2
 		const auto peep = SDL_PeepEvents(events.data(), events.size(), SDL_GETEVENT, SDL_FIRSTEVENT, SDL_LASTEVENT);
-#endif
 		if (peep <= 0)
 			break;
 		state.process_event_batch(unchecked_partial_range(events, static_cast<unsigned>(peep)));
@@ -122,11 +116,9 @@ void event_poll_state::process_event_batch(const std::ranges::subrange<const SDL
 	{
 		window_event_result result;
 		switch(event.type) {
-#if SDL_MAJOR_VERSION == 2
 			case SDL_WINDOWEVENT:
 				windowevent_handler(event.window);
 				continue;
-#endif
 			case SDL_KEYDOWN:
 			case SDL_KEYUP:
 				if (clean_uniframe)
@@ -148,7 +140,6 @@ void event_poll_state::process_event_batch(const std::ranges::subrange<const SDL
 				result = mouse_motion_handler(&event.motion);
 				break;
 #if DXX_MAX_JOYSTICKS
-#if SDL_MAJOR_VERSION == 2
 #if DXX_MAX_BUTTONS_PER_JOYSTICK
 			case SDL_CONTROLLERBUTTONDOWN:
 			case SDL_CONTROLLERBUTTONUP:
@@ -173,7 +164,6 @@ void event_poll_state::process_event_batch(const std::ranges::subrange<const SDL
 			case SDL_CONTROLLERDEVICEREMOVED:
 				result = gc_device_removed(&event.cdevice);
 				break;
-#endif
 			case SDL_JOYBUTTONDOWN:
 			case SDL_JOYBUTTONUP:
 				if (CGameArg.CtlNoJoystick)
@@ -213,11 +203,7 @@ void event_flush()
 	for (;;)
 	{
 		SDL_PumpEvents();
-#if SDL_MAJOR_VERSION == 1
-		const auto peep = SDL_PeepEvents(events.data(), events.size(), SDL_GETEVENT, SDL_ALLEVENTS);
-#elif SDL_MAJOR_VERSION == 2
 		const auto peep = SDL_PeepEvents(events.data(), events.size(), SDL_GETEVENT, SDL_FIRSTEVENT, SDL_LASTEVENT);
-#endif
 		if (peep != events.size())
 			break;
 	}
@@ -303,12 +289,8 @@ template <bool activate_focus>
 static void event_change_focus()
 {
 	const auto enable_grab = activate_focus && CGameCfg.Grabinput && likely(!CGameArg.DbgForbidConsoleGrab);
-#if SDL_MAJOR_VERSION == 1
-	SDL_WM_GrabInput(enable_grab ? SDL_GRAB_ON : SDL_GRAB_OFF);
-#elif SDL_MAJOR_VERSION == 2
 	SDL_SetWindowGrab(g_pRebirthSDLMainWindow, enable_grab ? SDL_TRUE : SDL_FALSE);
 	SDL_SetRelativeMouseMode(enable_grab ? SDL_TRUE : SDL_FALSE);
-#endif
 	if (activate_focus)
 		mouse_disable_cursor();
 	else

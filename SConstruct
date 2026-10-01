@@ -1754,23 +1754,11 @@ static void terminate_handler()
 
 	@_custom_test
 	def _check_SDL(self,context):
-		if self.user_settings.sdl2:
-			check_libSDL = self.check_libSDL2
-			check_SDL_image = self.check_SDL2_image
-			check_SDL_mixer = self.check_SDL2_mixer
-		else:
-			check_libSDL = self.check_libSDL
-			check_SDL_image = self.check_SDL_image
-			check_SDL_mixer = self.check_SDL_mixer
-		check_libSDL(context)
-		check_SDL_image(context)
-		check_SDL_mixer(context)
-
-	@_implicit_test
-	def check_libSDL(self,context,_guess_flags={
-			'LIBS' : ['SDL'] if sys.platform != 'darwin' else [],
-		}):
-		self._check_libSDL(context, '', _guess_flags)
+		if not self.user_settings.sdl2:
+			raise SCons.Errors.StopError('SDL 1.2 is no longer supported.')
+		self.check_libSDL2(context)
+		self.check_SDL2_image(context)
+		self.check_SDL2_mixer(context)
 
 	@_implicit_test
 	def check_libSDL2(self,context,_guess_flags={
@@ -1795,10 +1783,8 @@ static void terminate_handler()
 			# inputs.
 			user_settings.max_axes_per_joystick = user_settings.max_buttons_per_joystick = user_settings.max_hats_per_joystick = 0
 		successflags['CPPDEFINES'] = CPPDEFINES = successflags.get('CPPDEFINES', []).copy()
-		# use Redbook if at least one of the following applies
-		#    1. we are on SDL1
-		#    2. we are building for a platform for which we have a custom CD implementation (currently only win32)
-		use_redbook = int(not sdl2 or user_settings._enumerated_host_platform in (host_platform.win32, host_platform.win64))
+		# Only Windows has a native CD implementation.
+		use_redbook = int(user_settings._enumerated_host_platform in (host_platform.win32, host_platform.win64))
 		CPPDEFINES.extend((
 			('DXX_MAX_JOYSTICKS', user_settings.max_joysticks),
 			('DXX_MAX_AXES_PER_JOYSTICK', user_settings.max_axes_per_joystick),
@@ -1808,7 +1794,7 @@ static void terminate_handler()
 		))
 		context.Display(f'{self.msgprefix}: checking whether to enable joystick support...{"yes" if user_settings.max_joysticks else "no"}\n')
 		# SDL2 removed CD-rom support.
-		init_cdrom = '0' if sdl2 else 'SDL_INIT_CDROM'
+		init_cdrom = '0'
 		error_text_opengl_mismatch = f'Rebirth configured with OpenGL enabled, but SDL{sdl2} configured with OpenGL disabled.  Disable Rebirth OpenGL or install an SDL{sdl2} with OpenGL enabled.'
 		test_opengl = (f'''
 #if !((SDL_MAJOR_VERSION == 1) && (SDL_MINOR_VERSION == 2) && (SDL_PATCHLEVEL >= 50))
@@ -1851,10 +1837,6 @@ static void terminate_handler()
 		raise SCons.Errors.StopError(e[1])
 
 	@_implicit_test
-	def check_SDL_image(self,context):
-		self._check_SDL_image(context, '')
-
-	@_implicit_test
 	def check_SDL2_image(self,context):
 		self._check_SDL_image(context, '2')
 
@@ -1868,10 +1850,6 @@ static void terminate_handler()
 ''')
 
 	# SDL_mixer/SDL2_mixer use the same -I line as SDL/SDL2
-	@_implicit_test
-	def check_SDL_mixer(self,context):
-		self._check_SDL_mixer(context, '')
-
 	@_implicit_test
 	def check_SDL2_mixer(self,context):
 		self._check_SDL_mixer(context, '2')
@@ -3803,9 +3781,7 @@ class DXXCommon(LazyObjectConstructor):
 				return True
 			return False
 		def default_sdl2(self):
-			if self.raspberrypi in ('mesa',) or self.host_platform == host_platform.darwin.name:
-				return True
-			return False
+			return True
 		@classmethod
 		def default_verbosebuild(cls):
 			# Enable verbosebuild when the output is not directed to a
@@ -5086,9 +5062,6 @@ class DXXArchive(DXXCommon):
 		__get_objects_use_joystick=DXXCommon.create_lazy_object_getter((
 'common/arch/sdl/joy.cpp',
 )),
-		__get_objects_use_sdl1=DXXCommon.create_lazy_object_getter((
-'common/arch/sdl/rbaudio.cpp',
-)),
 		__get_objects_use_joystick_sdl2=DXXCommon.create_lazy_object_getter((
 'common/arch/sdl/gamecontroller.cpp',
 ))
@@ -5101,11 +5074,8 @@ class DXXArchive(DXXCommon):
 			extend(__get_objects_use_adlmidi(self))
 		if user_settings.max_joysticks:
 			extend(__get_objects_use_joystick(self))
-		if not user_settings.sdl2:
-			extend(__get_objects_use_sdl1(self))
-		else:
-			if user_settings.max_joysticks:
-				extend(__get_objects_use_joystick_sdl2(self))
+		if user_settings.max_joysticks:
+			extend(__get_objects_use_joystick_sdl2(self))
 		extend(self.platform_settings.get_platform_objects())
 		return value
 

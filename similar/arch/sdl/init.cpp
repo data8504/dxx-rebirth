@@ -35,9 +35,7 @@ static void arch_close(void)
 	if (!CGameArg.CtlNoJoystick)
 	{
 		joy_close();
-#if SDL_MAJOR_VERSION == 2
 		gamecontroller_close();
-#endif
 	}
 #endif
 
@@ -68,7 +66,6 @@ arch_atexit arch_init()
 #if DXX_USE_SDLIMAGE
 	IMG_Init(0);
 #endif
-#if SDL_MAJOR_VERSION == 2
 	/* In SDL1, grabbing input grabbed both the keyboard and the mouse.
 	 * Many game management keys assume a keyboard grab.
 	 * Tell SDL2 to grab the keyboard.
@@ -87,7 +84,6 @@ arch_atexit arch_init()
 	/* Support the Alt+Shift+F4 hotkey for renaming the Guide-Bot
 	 */
 	SDL_SetHint(SDL_HINT_WINDOWS_NO_CLOSE_ON_ALT_F4, "1");
-#endif
 
 	key_init();
 
@@ -103,9 +99,7 @@ arch_atexit arch_init()
 	if (!CGameArg.CtlNoJoystick)
 	{
 		joy_init();
-#if SDL_MAJOR_VERSION == 2
 		gamecontroller_init();
-#endif
 	}
 #endif
 

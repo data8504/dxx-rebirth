@@ -1715,17 +1715,10 @@ window_event_result briefing::event_handler(const d_event &event)
 			// Convert joystick button to equivalent key action
 			const auto btn = event_joystick_get_button(event);
 			int key = 0;
-#if SDL_MAJOR_VERSION == 2
 			if (btn == SDL_CONTROLLER_BUTTON_A || btn == SDL_CONTROLLER_BUTTON_START)
 				key = KEY_ENTER;
 			else if (btn == SDL_CONTROLLER_BUTTON_B || btn == SDL_CONTROLLER_BUTTON_BACK)
 				key = KEY_ESC;
-#else
-			if (btn == 0)
-				key = KEY_ENTER;
-			else if (btn == 1)
-				key = KEY_ESC;
-#endif
 			if (key == KEY_ESC)
 				return window_event_result::close;
 			if (key == KEY_ENTER)
