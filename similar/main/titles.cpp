@@ -57,7 +57,8 @@ COPYRIGHT 1993-1999 PARALLAX SOFTWARE CORPORATION.  ALL RIGHTS RESERVED.
 #include "movie.h"
 #include "physfsrwops.h"
 #if DXX_USE_SDLMIXER
-#include <SDL_mixer.h>
+#include <SDL3_mixer/SDL_mixer.h>
+#include "digi_mixer_music.h"
 #endif
 #include "mission.h"
 #include "mouse.h"
@@ -606,8 +607,8 @@ struct briefing : window
 	RWops_ptr RoboFile;
 #endif
 #if DXX_BUILD_DESCENT == 1 && DXX_USE_SDLMIXER
-	Mix_Chunk *briefing_audio{nullptr};
-	int briefing_audio_channel{-1};
+	MIX_Audio *briefing_audio{nullptr};
+	MIX_Track *briefing_audio_track{nullptr};
 #endif
 	std::unique_ptr<char[]>	text;
 	const char	*message;
@@ -627,17 +628,17 @@ struct briefing : window
 #if DXX_BUILD_DESCENT == 1 && DXX_USE_SDLMIXER
 static void briefing_audio_stop(briefing *br)
 {
-	if (br->briefing_audio_channel >= 0)
+	if (br->briefing_audio_track)
 	{
-		Mix_HaltChannel(br->briefing_audio_channel);
-		br->briefing_audio_channel = -1;
+		MIX_DestroyTrack(br->briefing_audio_track);
+		br->briefing_audio_track = nullptr;
 	}
 	if (br->briefing_audio)
 	{
-		Mix_FreeChunk(br->briefing_audio);
+		MIX_DestroyAudio(br->briefing_audio);
 		br->briefing_audio = nullptr;
 		// Restore music volume
-		Mix_VolumeMusic(MIX_MAX_VOLUME);
+		MIX_SetTrackGain(digi_mixer_get_music_track(), 1.f);
 	}
 }
 
@@ -657,21 +658,28 @@ static void briefing_audio_play(briefing *br, const char *filename)
 	if (PHYSFSX_readBytes(fp, buf.get(), len) != len)
 		return;
 	fp.reset();
-	SDL_RWops *rw = SDL_RWFromMem(buf.get(), len);
+	SDL_IOStream *rw = SDL_IOFromMem(buf.get(), len);
 	if (!rw)
 		return;
-	br->briefing_audio = Mix_LoadWAV_RW(rw, 1);
-	// Mix_LoadWAV_RW decodes the audio, so our buffer can be freed
+	br->briefing_audio = MIX_LoadAudio_IO(digi_mixer_get_mixer(), rw, true, true);
+	// MIX_LoadAudio_IO copies the source, so our buffer can be freed.
 	buf.reset();
 	if (!br->briefing_audio)
 	{
-		con_printf(CON_NORMAL, "D1X: briefing audio <%s> failed to load: %s", filename, Mix_GetError());
+		con_printf(CON_NORMAL, "D1X: briefing audio <%s> failed to load: %s", filename, SDL_GetError());
 		return;
 	}
 	// Lower music volume while voiceover plays
-	Mix_VolumeMusic(MIX_MAX_VOLUME / 2);
-	br->briefing_audio_channel = Mix_PlayChannel(-1, br->briefing_audio, 0);
-	con_printf(CON_NORMAL, "D1X: playing briefing audio <%s> on channel %d", filename, br->briefing_audio_channel);
+	br->briefing_audio_track = MIX_CreateTrack(digi_mixer_get_mixer());
+	if (!br->briefing_audio_track
+		|| !MIX_SetTrackAudio(br->briefing_audio_track, br->briefing_audio)
+		|| !MIX_PlayTrack(br->briefing_audio_track, 0))
+	{
+		briefing_audio_stop(br);
+		return;
+	}
+	MIX_SetTrackGain(digi_mixer_get_music_track(), .5f);
+	con_printf(CON_NORMAL, "D1X: playing briefing audio <%s>", filename);
 }
 #endif
 
@@ -1715,9 +1723,9 @@ window_event_result briefing::event_handler(const d_event &event)
 			// Convert joystick button to equivalent key action
 			const auto btn = event_joystick_get_button(event);
 			int key = 0;
-			if (btn == SDL_CONTROLLER_BUTTON_A || btn == SDL_CONTROLLER_BUTTON_START)
+			if (btn == SDL_GAMEPAD_BUTTON_SOUTH || btn == SDL_GAMEPAD_BUTTON_START)
 				key = KEY_ENTER;
-			else if (btn == SDL_CONTROLLER_BUTTON_B || btn == SDL_CONTROLLER_BUTTON_BACK)
+			else if (btn == SDL_GAMEPAD_BUTTON_EAST || btn == SDL_GAMEPAD_BUTTON_BACK)
 				key = KEY_ESC;
 			if (key == KEY_ESC)
 				return window_event_result::close;

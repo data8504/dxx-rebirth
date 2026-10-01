@@ -26,9 +26,10 @@
 # endif // macintosh
 #endif // _WIN32
 
-#include <SDL.h>
+#include <SDL3/SDL.h>
 #if DXX_USE_SDLMIXER
-#include <SDL_mixer.h>
+#include <SDL3_mixer/SDL_mixer.h>
+#include "digi_mixer_music.h"
 #endif
 
 #include "config.h"
@@ -308,34 +309,18 @@ bool MVESTREAM::queue_mve_audio_buffer(::dcx::unique_span<int16_t> &&buffer)
 	return true;
 }
 
-#if DXX_USE_SDLMIXER && SDL_MAJOR_VERSION == 2
-bool MVESTREAM::drain_mve_audio_stream()
+static void mve_audio_stream_callback(void *const userdata, SDL_AudioStream *const stream, const int additional, int)
 {
-	const auto available = SDL_AudioStreamAvailable(mve_audio_stream.get());
-	if (available < 0)
-	{
-		con_printf(CON_URGENT, "%s:%u: SDL_AudioStreamAvailable failed: %s", __FILE__, __LINE__, SDL_GetError());
-		return false;
-	}
-	if (!available)
-		return true;
-	auto output = std::make_unique<int16_t[]>((available + 1) / 2);
-	const auto converted = SDL_AudioStreamGet(mve_audio_stream.get(), output.get(), available);
-	if (converted < 0)
-	{
-		con_printf(CON_URGENT, "%s:%u: SDL_AudioStreamGet failed: %s", __FILE__, __LINE__, SDL_GetError());
-		return false;
-	}
-	if (converted & 1)
-	{
-		con_printf(CON_URGENT, "%s:%u: SDL_AudioStreamGet returned odd byte count: %d", __FILE__, __LINE__, converted);
-		return false;
-	}
-	if (!converted)
-		return true;
-	return queue_mve_audio_buffer(::dcx::unique_span<int16_t>{std::move(output), static_cast<std::size_t>(converted) / sizeof(int16_t)});
+	if (additional <= 0)
+		return;
+	const auto &movie = *static_cast<MVESTREAM *>(userdata);
+	const auto frame_size = SDL_AUDIO_FRAMESIZE(*movie.mve_audio_spec);
+	const auto length = ((additional + frame_size - 1) / frame_size) * frame_size;
+	auto buffer = std::make_unique<Uint8[]>(length);
+	std::fill_n(buffer.get(), length, SDL_GetSilenceValueForFormat(movie.mve_audio_spec->format));
+	mve_audio_callback(userdata, buffer.get(), length);
+	SDL_PutAudioStreamData(stream, buffer.get(), length);
 }
-#endif
 
 MVESTREAM::handle_result MVESTREAM::handle_mve_segment_initaudiobuffers(unsigned char minor, const unsigned char *data)
 {
@@ -355,9 +340,9 @@ MVESTREAM::handle_result MVESTREAM::handle_mve_segment_initaudiobuffers(unsigned
 	mve_audio_flags = flags;
 	mve_audio_buffers = {};
 
-	const unsigned format = (bitsize)
-		? (words_bigendian ? AUDIO_S16MSB : AUDIO_S16LSB)
-		: AUDIO_U8;
+	const SDL_AudioFormat format = (bitsize)
+		? SDL_AUDIO_S16
+		: SDL_AUDIO_U8;
 
 	if (CGameArg.SndDisableSdlMixer)
 	{
@@ -374,14 +359,12 @@ MVESTREAM::handle_result MVESTREAM::handle_mve_segment_initaudiobuffers(unsigned
 		s.freq = sample_rate;
 		s.format = format;
 		s.channels = (stereo) ? 2 : 1;
-		s.samples = 4096;
-		s.callback = mve_audio_callback;
-		s.userdata = this;
 
 	// MD2211: if using SDL_Mixer, we never reinit the sound system
 	if (CGameArg.SndDisableSdlMixer)
 	{
-		if (SDL_OpenAudio(&s, NULL) >= 0) {
+		mve_audio_stream.reset(SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &s, mve_audio_stream_callback, this));
+		if (mve_audio_stream) {
 			con_puts(CON_CRITICAL, "   success");
 		}
 		else {
@@ -392,24 +375,17 @@ MVESTREAM::handle_result MVESTREAM::handle_mve_segment_initaudiobuffers(unsigned
 
 #if DXX_USE_SDLMIXER
 	else {
-		int output_frequency;
-		Uint16 output_format;
-		int output_channels;
-		if (!Mix_QuerySpec(&output_frequency, &output_format, &output_channels))
+		SDL_AudioSpec output;
+		const auto mixer = digi_mixer_get_mixer();
+		if (!MIX_GetMixerFormat(mixer, &output)
+			|| !(mve_audio_stream = MVE_audio_stream_ptr{SDL_CreateAudioStream(&s, &output)})
+			|| !(mve_audio_track = MVE_audio_track_ptr{MIX_CreateTrack(mixer)})
+			|| !MIX_SetTrackAudioStream(mve_audio_track.get(), mve_audio_stream.get()))
 		{
-			con_printf(CON_URGENT, "Mix_QuerySpec failed while preparing movie audio: %s", Mix_GetError());
+			con_printf(CON_URGENT, "Preparing movie audio failed: %s", SDL_GetError());
+			mve_audio_track.reset();
+			mve_audio_stream.reset();
 			mve_audio_spec = {};
-		}
-		else if (!(mve_audio_stream = MVE_audio_stream_ptr{SDL_NewAudioStream(
-			s.format, s.channels, s.freq, output_format, output_channels, output_frequency)}))
-		{
-			con_printf(CON_URGENT, "SDL_NewAudioStream failed while preparing movie audio: %s", SDL_GetError());
-			mve_audio_spec = {};
-		}
-		else
-		{
-			// MD2211: using the same old SDL audio callback as a postmixer in SDL_mixer
-			Mix_SetPostMix(s.callback, s.userdata);
 		}
 	}
 #endif
@@ -427,13 +403,23 @@ MVESTREAM::handle_result MVESTREAM::handle_mve_segment_startstopaudio()
 			const std::lock_guard lock{mve_audio_mutex};
 			have_queued_audio = mve_audio_bufhead != mve_audio_buftail;
 		}
+#if DXX_USE_SDLMIXER
+		if (!CGameArg.SndDisableSdlMixer)
+			have_queued_audio = SDL_GetAudioStreamQueued(mve_audio_stream.get()) > 0;
+#endif
 		if (have_queued_audio)
 		{
 			if (CGameArg.SndDisableSdlMixer)
-				SDL_PauseAudio(0);
+				SDL_ResumeAudioStreamDevice(mve_audio_stream.get());
 #if DXX_USE_SDLMIXER
 			else
-				Mix_Pause(0);
+			{
+				/* Segment boundaries can temporarily exhaust the stream. */
+				const auto options = SDL_CreateProperties();
+				SDL_SetBooleanProperty(options, MIX_PROP_PLAY_HALT_WHEN_EXHAUSTED_BOOLEAN, false);
+				MIX_PlayTrack(mve_audio_track.get(), options);
+				SDL_DestroyProperties(options);
+			}
 #endif
 			mve_audio_playing = 1;
 		}
@@ -506,16 +492,14 @@ MVESTREAM::handle_result MVESTREAM::handle_mve_segment_audioframedata(const mve_
 				p = {nsamp / 2};
 			}
 
-			// Convert movie audio to the SDL_mixer output format.  SDL2 keeps one
+			// Convert movie audio to the SDL_mixer output format.  SDL3 keeps one
 			// stream for the entire movie so resampler state is preserved across
 			// MVE segment boundaries.
 #if DXX_USE_SDLMIXER
 			if (!CGameArg.SndDisableSdlMixer) {
 				static_cast<void>(mve_audio_spec);
-				if (SDL_AudioStreamPut(mve_audio_stream.get(), p.get(), nsamp))
-					con_printf(CON_URGENT, "%s:%u: SDL_AudioStreamPut failed: %s", __FILE__, __LINE__, SDL_GetError());
-				else
-					drain_mve_audio_stream();
+				if (!SDL_PutAudioStreamData(mve_audio_stream.get(), p.get(), nsamp))
+					con_printf(CON_URGENT, "%s:%u: SDL_PutAudioStreamData failed: %s", __FILE__, __LINE__, SDL_GetError());
 				p = {};
 			}
 #endif
@@ -707,14 +691,13 @@ void MVE_rmEndMovie(std::unique_ptr<MVESTREAM> stream)
 		// MD2211: if using SDL_Mixer, we never reinit sound, hence never close it
 		if (CGameArg.SndDisableSdlMixer)
 		{
-			SDL_CloseAudio();
+			stream->mve_audio_stream.reset();
 		}
 #if DXX_USE_SDLMIXER
 		else
 		{
-			Mix_SetPostMix(nullptr, nullptr);
-			/* Wait for any callback that began before it was unregistered. */
-			const std::lock_guard lock{stream->mve_audio_mutex};
+			stream->mve_audio_track.reset();
+			stream->mve_audio_stream.reset();
 		}
 #endif
 	}
