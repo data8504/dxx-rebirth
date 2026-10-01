@@ -19,6 +19,7 @@ tar -xf "$archive" -C "$build_directory"
 cmake -S "$build_directory/SDL3_mixer-3.2.4" -B "$build_directory/build" -G Ninja \
     -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$prefix" \
     -DCMAKE_INSTALL_LIBDIR=lib -DSDLMIXER_VENDORED=OFF \
+    -DSDLMIXER_DEPS_SHARED=OFF \
     -DSDLMIXER_EXAMPLES=OFF -DSDLMIXER_TESTS=OFF
 cmake --build "$build_directory/build" --parallel
 cmake --install "$build_directory/build"
