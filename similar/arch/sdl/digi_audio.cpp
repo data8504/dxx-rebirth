@@ -14,7 +14,9 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
-#include <SDL.h>
+#include <memory>
+#include <utility>
+#include <SDL3/SDL.h>
 #include <digi_audio.h>
 #include "dxxerror.h"
 #include "fmtcheck.h"
@@ -113,6 +115,7 @@ static void digi_audio_stop_sound(sound_slot &s)
 
 static enumerated_array<sound_slot, 32, sound_channel> SoundSlots;
 static SDL_AudioSpec WaveSpec;
+static SDL_AudioStream *audio_stream;
 static sound_channel next_channel;
 
 /* Return the next sound_channel after `c`, and roll back to 0 if incrementing
@@ -141,8 +144,6 @@ static void audio_mixcallback(void *, Uint8 *stream, int len)
 		return;
 
 	memset(stream, 0x80, len); // fix "static" sound bug on Mac OS X
-
-	RAII_SDL_LockAudio lock_audio{};
 
 	range_for (auto &sl, SoundSlots)
 	{
@@ -181,13 +182,25 @@ static void audio_mixcallback(void *, Uint8 *stream, int len)
 	}
 }
 
+static void audio_stream_callback(void *, SDL_AudioStream *const stream, const int additional_amount, int)
+{
+	if (additional_amount <= 0)
+		return;
+	/* Stereo U8 needs complete two-byte frames.  The callback already holds
+	 * the stream lock, which also protects SoundSlots from the game thread. */
+	const auto length = (additional_amount + 1) & ~1;
+	auto buffer = std::make_unique<Uint8[]>(length);
+	audio_mixcallback(nullptr, buffer.get(), length);
+	SDL_PutAudioStreamData(stream, buffer.get(), length);
+}
+
 }
 //end changes by adb
 
 /* Initialise audio devices. */
 int digi_audio_init()
 {
-	if (SDL_InitSubSystem(SDL_INIT_AUDIO)<0) {
+	if (!SDL_InitSubSystem(SDL_INIT_AUDIO)) {
 		Error("SDL audio initialisation failed: %s.",SDL_GetError());
 	}
 
@@ -201,22 +214,19 @@ int digi_audio_init()
 	WaveSpec.freq = underlying_value(GameArg.SndDigiSampleRate);
 #endif
 	//added/changed by Sam Lantinga on 12/01/98 for new SDL version
-	WaveSpec.format = AUDIO_U8;
+	WaveSpec.format = SDL_AUDIO_U8;
 	WaveSpec.channels = 2;
 	//end this section addition/change - SL
-	WaveSpec.samples = /* SOUND_BUFFER_SIZE = */ 1024;
-	WaveSpec.callback = audio_mixcallback;
-
-	if ( SDL_OpenAudio(&WaveSpec, NULL) < 0 ) {
+	audio_stream = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &WaveSpec, audio_stream_callback, nullptr);
+	if (!audio_stream) {
 		//edited on 10/05/98 by Matt Mueller - should keep running, just with no sound.
 		Warning("Failed to open audio: %s", SDL_GetError());
 		//killed  exit(2);
 		return 1;
 		//end edit -MM
 	}
-	SDL_PauseAudio(0);
-
 	digi_initialised = 1;
+	SDL_ResumeAudioStreamDevice(audio_stream);
 
 	digi_audio_set_digi_volume((CGameCfg.DigiVolume * 32768) / 8);
 	return 0;
@@ -226,15 +236,13 @@ int digi_audio_init()
 void digi_audio_close()
 {
 	if (!digi_initialised) return;
+	SDL_DestroyAudioStream(std::exchange(audio_stream, nullptr));
 	digi_initialised = 0;
-#ifdef __MINGW32__
-	SDL_Delay(500); // CloseAudio hangs if it's called too soon after opening?
-#endif
-	SDL_CloseAudio();
 }
 
 void digi_audio_stop_all_channels()
 {
+	RAII_SDL_LockAudio lock_audio{audio_stream};
 	range_for (auto &i, SoundSlots)
 		digi_audio_stop_sound(i);
 }
@@ -249,7 +257,7 @@ sound_channel digi_audio_start_sound(sound_effect soundnum, fix volume, sound_pa
 	if (soundnum == sound_effect::None)
 		return sound_channel::None;
 
-	RAII_SDL_LockAudio lock_audio{};
+	RAII_SDL_LockAudio lock_audio{audio_stream};
 
 	const auto starting_channel{next_channel};
 
@@ -319,6 +327,7 @@ void digi_audio_set_digi_volume( int dvolume )
 
 int digi_audio_is_channel_playing(const sound_channel channel)
 {
+	RAII_SDL_LockAudio lock_audio{audio_stream};
 	if (!digi_initialised)
 		return 0;
 
@@ -327,6 +336,7 @@ int digi_audio_is_channel_playing(const sound_channel channel)
 
 void digi_audio_set_channel_volume(const sound_channel channel, int volume)
 {
+	RAII_SDL_LockAudio lock_audio{audio_stream};
 	if (!digi_initialised)
 		return;
 
@@ -338,6 +348,7 @@ void digi_audio_set_channel_volume(const sound_channel channel, int volume)
 
 void digi_audio_set_channel_pan(const sound_channel channel, const sound_pan pan)
 {
+	RAII_SDL_LockAudio lock_audio{audio_stream};
 	if (!digi_initialised)
 		return;
 
@@ -349,11 +360,13 @@ void digi_audio_set_channel_pan(const sound_channel channel, const sound_pan pan
 
 void digi_audio_stop_sound(const sound_channel channel)
 {
+	RAII_SDL_LockAudio lock_audio{audio_stream};
 	digi_audio_stop_sound(SoundSlots[channel]);
 }
 
 void digi_audio_end_sound(const sound_channel channel)
 {
+	RAII_SDL_LockAudio lock_audio{audio_stream};
 	if (!digi_initialised)
 		return;
 
