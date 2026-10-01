@@ -17,9 +17,9 @@
 #include <stdlib.h>
 #include <ranges>
 
-#include <SDL.h>
-#include <SDL_version.h>
-#include <SDL_keycode.h>
+#include <SDL3/SDL.h>
+#include <SDL3/SDL_version.h>
+#include <SDL3/SDL_keycode.h>
 
 #include "event.h"
 #include "dxxerror.h"
@@ -40,6 +40,7 @@ static bool keyd_repeat; // 1 = use repeats, 0 no repeats
 pressed_keys keyd_pressed;
 fix64			keyd_time_when_last_pressed;
 std::array<unsigned char, KEY_BUFFER_SIZE>		unicode_frame_buffer;
+static std::array<unsigned char, KEY_BUFFER_SIZE> unibuffer;
 
 constexpr std::array<key_props, 256> key_properties = {{
 { "",       255,    SDLK_UNKNOWN                 }, // 0
@@ -58,41 +59,41 @@ constexpr std::array<key_props, 256> key_properties = {{
 { "=",      '=',    SDLK_EQUALS        },
 { "BSPC",   255,    SDLK_BACKSPACE     },
 { "TAB",    255,    SDLK_TAB           },
-{ "Q",      'q',    SDLK_q             },
-{ "W",      'w',    SDLK_w             },
-{ "E",      'e',    SDLK_e             },
-{ "R",      'r',    SDLK_r             },
-{ "T",      't',    SDLK_t             }, // 20
-{ "Y",      'y',    SDLK_y             },
-{ "U",      'u',    SDLK_u             },
-{ "I",      'i',    SDLK_i             },
-{ "O",      'o',    SDLK_o             },
-{ "P",      'p',    SDLK_p             },
+{ "Q",      'q',    SDLK_Q             },
+{ "W",      'w',    SDLK_W             },
+{ "E",      'e',    SDLK_E             },
+{ "R",      'r',    SDLK_R             },
+{ "T",      't',    SDLK_T             }, // 20
+{ "Y",      'y',    SDLK_Y             },
+{ "U",      'u',    SDLK_U             },
+{ "I",      'i',    SDLK_I             },
+{ "O",      'o',    SDLK_O             },
+{ "P",      'p',    SDLK_P             },
 { "[",      '[',    SDLK_LEFTBRACKET   },
 { "]",      ']',    SDLK_RIGHTBRACKET  },
 { "ENTER",  255,    SDLK_RETURN        },
 { "LCTRL",  255,    SDLK_LCTRL         },
-{ "A",      'a',    SDLK_a             }, // 30
-{ "S",      's',    SDLK_s             },
-{ "D",      'd',    SDLK_d             },
-{ "F",      'f',    SDLK_f             },
-{ "G",      'g',    SDLK_g             },
-{ "H",      'h',    SDLK_h             },
-{ "J",      'j',    SDLK_j             },
-{ "K",      'k',    SDLK_k             },
-{ "L",      'l',    SDLK_l             },
+{ "A",      'a',    SDLK_A             }, // 30
+{ "S",      's',    SDLK_S             },
+{ "D",      'd',    SDLK_D             },
+{ "F",      'f',    SDLK_F             },
+{ "G",      'g',    SDLK_G             },
+{ "H",      'h',    SDLK_H             },
+{ "J",      'j',    SDLK_J             },
+{ "K",      'k',    SDLK_K             },
+{ "L",      'l',    SDLK_L             },
 { ";",      ';',    SDLK_SEMICOLON     },
-{ "'",      '\'',   SDLK_QUOTE         }, // 40
-{ "`",      '`',    SDLK_BACKQUOTE     },
+{ "'",      '\'',   SDLK_APOSTROPHE         }, // 40
+{ "`",      '`',    SDLK_GRAVE     },
 { "LSHFT",  255,    SDLK_LSHIFT        },
 { "\\",     '\\',   SDLK_BACKSLASH     },
-{ "Z",      'z',    SDLK_z             },
-{ "X",      'x',    SDLK_x             },
-{ "C",      'c',    SDLK_c             },
-{ "V",      'v',    SDLK_v             },
-{ "B",      'b',    SDLK_b             },
-{ "N",      'n',    SDLK_n             },
-{ "M",      'm',    SDLK_m             }, // 50
+{ "Z",      'z',    SDLK_Z             },
+{ "X",      'x',    SDLK_X             },
+{ "C",      'c',    SDLK_C             },
+{ "V",      'v',    SDLK_V             },
+{ "B",      'b',    SDLK_B             },
+{ "N",      'n',    SDLK_N             },
+{ "M",      'm',    SDLK_M             }, // 50
 { ",",      ',',    SDLK_COMMA         },
 { ".",      '.',    SDLK_PERIOD        },
 { "/",      '/',    SDLK_SLASH         },
@@ -252,10 +253,8 @@ constexpr std::array<key_props, 256> key_properties = {{
 { "",       255,    SDLK_UNKNOWN                 },
 { "PAD",    255,    SDLK_KP_ENTER      },
 { "RCTRL",  255,    SDLK_RCTRL         },
-#define SDLK_LMETA	SDLK_UNKNOWN
-#define SDLK_RMETA	SDLK_UNKNOWN
-{ "LCMD",   255,    SDLK_LMETA         },
-{ "RCMD",   255,    SDLK_RMETA         },
+{ "LCMD",   255,    SDLK_LGUI          },
+{ "RCMD",   255,    SDLK_RGUI          },
 { "",       255,    SDLK_UNKNOWN                 }, // 160
 { "",       255,    SDLK_UNKNOWN                 },
 { "",       255,    SDLK_UNKNOWN                 },
@@ -350,7 +349,6 @@ unsigned char key_ascii()
 {
 	using std::move;
 	using std::next;
-	static std::array<unsigned char, KEY_BUFFER_SIZE> unibuffer;
 	auto src = begin(unicode_frame_buffer);
 	auto dst = next(begin(unibuffer), strlen(reinterpret_cast<const char *>(&unibuffer[0])));
 	
@@ -417,25 +415,13 @@ window_event_result key_handler(const SDL_KeyboardEvent *const kevent)
 	if (!keyd_repeat && kevent->repeat)
 		return window_event_result::ignored;
 	// Read SDLK symbol and state
-	const auto event_keysym = kevent->keysym.sym;
+	/* SDL3 key events contain modified symbols.  Bindings use the original
+	 * unmodified layout symbols, with modifiers carried separately.
+	 */
+	const auto event_keysym = SDL_GetKeyFromScancode(kevent->scancode, SDL_KMOD_NONE, true);
 	if (event_keysym == SDLK_UNKNOWN)
 		return window_event_result::ignored;
-	const auto key_state = (kevent->state != SDL_RELEASED);
-
-	// fill the unicode frame-related unicode buffer 
-	if (key_state)
-	{
-		const auto sym = kevent->keysym.sym;
-		if (sym > 31 && sym < 255)
-		{
-			range_for (auto &i, unicode_frame_buffer)
-				if (i == '\0')
-				{
-					i = sym;
-					break;
-				}
-		}
-	}
+	const auto key_state = kevent->down;
 
 	//=====================================================
 	const auto re = key_properties.rend();
@@ -476,6 +462,27 @@ window_event_result key_handler(const SDL_KeyboardEvent *const kevent)
 	return window_event_result::ignored;
 }
 
+window_event_result key_text_handler(const char *text)
+{
+	window_event_result result{window_event_result::ignored};
+	/* The game font and menu buffers use single-byte characters.  Decode SDL's
+	 * UTF-8 and deliver only characters representable by that existing format.
+	 * A neutral key command lets menu text consumers process committed text,
+	 * which SDL delivers independently of (and after) physical key events.
+	 */
+	while (const auto character = SDL_StepUTF8(&text, nullptr))
+	{
+		if (character <= 31 || character >= 255)
+			continue;
+		unicode_frame_buffer[0] = character;
+		result = std::max(event_send(d_event_keycommand{event_type::key_command, 0, d_event_keycommand::source::keyboard}), result);
+		unicode_frame_buffer = {};
+		if (result == window_event_result::deleted)
+			break;
+	}
+	return result;
+}
+
 void key_init()
 {
 	key_toggle_repeat(1);
@@ -487,11 +494,9 @@ void key_init()
 
 namespace {
 
-static void restore_sticky_key(const uint8_t *keystate, const unsigned i)
+static void restore_sticky_key(const bool *keystate, const unsigned key, const SDL_Scancode scancode)
 {
-	const auto ki{i};
-	const auto v = keystate[ki];	// do not flush status of sticky keys
-	keyd_pressed.update_pressed(i, v);
+	keyd_pressed.update_pressed(key, keystate[scancode]);
 }
 
 }
@@ -500,14 +505,14 @@ void key_flush()
 {
 	//Clear the unicode buffer
 	unicode_frame_buffer = {};
+	unibuffer = {};
 	keyd_pressed = {};
 	if (unlikely(CGameArg.CtlNoStickyKeys))
 		return;
 	const auto &keystate = SDL_GetKeyboardState(nullptr);
-#define DXX_SDL_STICKY_KEYS	{SDL_SCANCODE_CAPSLOCK, SDL_SCANCODE_SCROLLLOCK, SDL_SCANCODE_NUMLOCKCLEAR}
-	range_for (const auto key, DXX_SDL_STICKY_KEYS)
-#undef DXX_SDL_STICKY_KEYS
-		restore_sticky_key(keystate, key);
+	restore_sticky_key(keystate, KEY_CAPSLOCK, SDL_SCANCODE_CAPSLOCK);
+	restore_sticky_key(keystate, KEY_SCROLLOCK, SDL_SCANCODE_SCROLLLOCK);
+	restore_sticky_key(keystate, KEY_NUMLOCK, SDL_SCANCODE_NUMLOCKCLEAR);
 }
 
 void event_keycommand_send(unsigned key) {

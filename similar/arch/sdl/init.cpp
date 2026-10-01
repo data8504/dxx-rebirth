@@ -6,7 +6,7 @@
  */
 // Holds the main init and de-init functions for arch-related program parts
 
-#include <SDL.h>
+#include <SDL3/SDL.h>
 #include "songs.h"
 #include "key.h"
 #include "digi.h"
@@ -20,7 +20,7 @@
 #include "dxxsconf.h"
 
 #if DXX_USE_SDLIMAGE
-#include <SDL_image.h>
+#include <SDL3_image/SDL_image.h>
 #endif
 
 namespace dsx {
@@ -46,9 +46,6 @@ static void arch_close(void)
 	{
 		digi_close();
 	}
-#if DXX_USE_SDLIMAGE
-	IMG_Quit();
-#endif
 	SDL_Quit();
 }
 
@@ -61,29 +58,15 @@ arch_atexit arch_init()
 {
 	int t;
 
-	if (SDL_Init(SDL_INIT_VIDEO) < 0)
+	if (!SDL_Init(SDL_INIT_VIDEO))
 		Error("SDL library initialisation failed: %s.",SDL_GetError());
-#if DXX_USE_SDLIMAGE
-	IMG_Init(0);
-#endif
-	/* In SDL1, grabbing input grabbed both the keyboard and the mouse.
-	 * Many game management keys assume a keyboard grab.
-	 * Tell SDL2 to grab the keyboard.
-	 *
-	 * Unlike with SDL1, players have the option of overriding this grab
-	 * by setting an environment variable.  In SDL1, the only choice was
-	 * to skip both the keyboard grab and the mouse grab.  Now, players
-	 * can enable grabbing in the UI, but disable keyboard grab with the
-	 * environment variable.
-	 */
-	SDL_SetHint(SDL_HINT_GRAB_KEYBOARD, "1");
 	/* Gameplay continues regardless of focus, so keep the window
 	 * visible.
 	 */
 	SDL_SetHint(SDL_HINT_VIDEO_MINIMIZE_ON_FOCUS_LOSS, "0");
 	/* Support the Alt+Shift+F4 hotkey for renaming the Guide-Bot
 	 */
-	SDL_SetHint(SDL_HINT_WINDOWS_NO_CLOSE_ON_ALT_F4, "1");
+	SDL_SetHint(SDL_HINT_WINDOWS_CLOSE_ON_ALT_F4, "0");
 
 	key_init();
 

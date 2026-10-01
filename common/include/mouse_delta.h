@@ -15,6 +15,22 @@
 
 namespace dcx {
 
+/* SDL3 reports subpixel motion.  Retain the remainder between events before
+ * passing whole pixels to the existing fixed-point sensitivity pipeline.
+ */
+class mouse_motion_accumulator
+{
+	double m_remainder{};
+public:
+	int update(const float motion)
+	{
+		m_remainder += motion;
+		const auto whole = static_cast<int>(m_remainder);
+		m_remainder -= whole;
+		return whole;
+	}
+};
+
 class mouse_delta_state
 {
 	std::array<int64_t, 3> m_delta{};

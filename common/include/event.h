@@ -8,11 +8,11 @@
 
 #pragma once
 
-#include <SDL_version.h>
+#include <SDL3/SDL_version.h>
 #include "fwd-event.h"
 #include "maths.h"
 
-#include <SDL_video.h>
+#include <SDL3/SDL_video.h>
 
 namespace dcx {
 
