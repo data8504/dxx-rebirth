@@ -8,7 +8,7 @@
 
 #ifdef DXX_BUILD_DESCENT
 #include "maths.h"
-#include <SDL.h>
+#include <SDL3/SDL.h>
 #include "digi_audio.h"
 
 #ifndef DXX_FEATURE_EXTERNAL_RESAMPLER_SDL_NATIVE
@@ -16,7 +16,7 @@
 #endif
 
 #ifndef DXX_FEATURE_INTERNAL_RESAMPLER_EMULATE_SDL1
-#define DXX_FEATURE_INTERNAL_RESAMPLER_EMULATE_SDL1	(SDL_MAJOR_VERSION == 2)
+#define DXX_FEATURE_INTERNAL_RESAMPLER_EMULATE_SDL1	1
 #endif
 
 #ifndef DXX_FEATURE_INTERNAL_RESAMPLER_EMULATE_SOUNDBLASTER16
@@ -43,7 +43,7 @@ enum class digi_mixer_method : uint8_t
 #endif
 #if DXX_FEATURE_INTERNAL_RESAMPLER_EMULATE_SDL1
 	/* Use an internal resampler designed to produce the same results as SDL1's
-	 * native resampler.  Use this when you use SDL2 for other processing, but
+	 * native resampler.  Use this when you use SDL3 for other processing, but
 	 * prefer the results of the SDL1 sound resampler.
 	 */
 	emulate_sdl1,

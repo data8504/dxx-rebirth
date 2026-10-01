@@ -13,7 +13,13 @@
 #pragma once
 
 #ifdef __cplusplus
+struct MIX_Mixer;
+struct MIX_Track;
 namespace dcx {
+
+/* The effects backend owns the mixer; music and movies own their tracks. */
+MIX_Mixer *digi_mixer_get_mixer();
+MIX_Track *digi_mixer_get_music_track();
 
 int mix_play_music(const char *, int);
 int mix_play_file(const char *, int, void (*)());
