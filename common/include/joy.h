@@ -17,7 +17,7 @@
 #include "fwd-event.h"
 
 #if DXX_MAX_JOYSTICKS
-#include <SDL.h>
+#include <SDL3/SDL.h>
 
 namespace dcx {
 
@@ -71,11 +71,17 @@ window_event_result joy_axisbutton_handler(const SDL_JoyAxisEvent *jae);
 
 #if DXX_MAX_JOYSTICKS
 
-window_event_result gc_button_handler(const SDL_ControllerButtonEvent *cbe);
-window_event_result gc_axis_handler(const SDL_ControllerAxisEvent *cae);
-window_event_result gc_axisbutton_handler(const SDL_ControllerAxisEvent *cae);
-window_event_result gc_device_added(const SDL_ControllerDeviceEvent *cde);
-window_event_result gc_device_removed(const SDL_ControllerDeviceEvent *cde);
+/* Preserve the SDL2 button and axis-as-button numbering stored in profiles.
+ * SDL3 adds further buttons after TOUCHPAD; they must not shift these bindings.
+ */
+constexpr unsigned GAMECONTROLLER_BUTTON_COUNT = SDL_GAMEPAD_BUTTON_TOUCHPAD + 1;
+static_assert(GAMECONTROLLER_BUTTON_COUNT == 21);
+
+window_event_result gc_button_handler(const SDL_GamepadButtonEvent *cbe);
+window_event_result gc_axis_handler(const SDL_GamepadAxisEvent *cae);
+window_event_result gc_axisbutton_handler(const SDL_GamepadAxisEvent *cae);
+window_event_result gc_device_added(const SDL_GamepadDeviceEvent *cde);
+window_event_result gc_device_removed(const SDL_GamepadDeviceEvent *cde);
 
 void gamecontroller_init();
 void gamecontroller_flush();

@@ -25,6 +25,7 @@ COPYRIGHT 1993-1999 PARALLAX SOFTWARE CORPORATION.  ALL RIGHTS RESERVED.
 
 #include <algorithm>
 #include <stdio.h>
+#include <cinttypes>
 #include <cstdlib>
 #include <string.h>
 #include <stdarg.h>
@@ -105,7 +106,7 @@ COPYRIGHT 1993-1999 PARALLAX SOFTWARE CORPORATION.  ALL RIGHTS RESERVED.
 #include <array>
 #include <utility>
 
-#include <SDL.h>
+#include <SDL3/SDL.h>
 
 #if defined(__GNUC__) && defined(WIN32)
 /* Mingw64 _mingw_print_pop.h changes PRIi64 to POSIX-style.  Change it
@@ -2207,7 +2208,7 @@ window_event_result ReadControls(const d_level_shared_robot_info_state &LevelSha
 	if (Newdemo_state == ND_STATE_PLAYBACK)
 		update_vcr_state();
 
-#if DXX_MAX_BUTTONS_PER_JOYSTICK && SDL_MAJOR_VERSION == 2
+#if DXX_MAX_BUTTONS_PER_JOYSTICK
 	// Translate Back (-> ESC, opens game menu) and L3 (-> Shift+F4, guidebot in D2)
 	// during gameplay, but only if the button is not already bound to a kconfig
 	// action.  This preserves user customization: if the user binds Back to a
@@ -2215,8 +2216,8 @@ window_event_result ReadControls(const d_level_shared_robot_info_state &LevelSha
 	if (event.type == event_type::joystick_button_down)
 	{
 		const auto button = event_joystick_get_button(event);
-		if (button == SDL_CONTROLLER_BUTTON_BACK ||
-			button == SDL_CONTROLLER_BUTTON_LEFTSTICK)
+		if (button == SDL_GAMEPAD_BUTTON_BACK ||
+			button == SDL_GAMEPAD_BUTTON_LEFT_STICK)
 		{
 			const auto &joy_settings = PlayerCfg.KeySettings.Joystick;
 			if (std::find(joy_settings.begin(), joy_settings.end(), button) == joy_settings.end())

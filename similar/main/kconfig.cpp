@@ -120,7 +120,7 @@ namespace {
 
 #if DXX_MAX_JOYSTICKS
 // GameController axis-as-button indices for use in default key settings
-constexpr unsigned GC_AXIS_BUTTON(unsigned axis_id) { return SDL_CONTROLLER_BUTTON_MAX + (axis_id * 2); }
+constexpr unsigned GC_AXIS_BUTTON(unsigned axis_id) { return GAMECONTROLLER_BUTTON_COUNT + (axis_id * 2); }
 #endif
 
 struct kc_mitem {
@@ -540,7 +540,7 @@ constexpr struct player_config::KeySettings DefaultKeySettings{
 
 #if DXX_MAX_JOYSTICKS
 constexpr enumerated_array<uint8_t, MAX_CONTROLS, dxx_kconfig_ui_kc_joystick> DefaultKeySettingsGameController{{{
-	/* SDL2 GameController defaults (standardized button indices)
+	/* Gamepad defaults (standardized button indices)
 	 *  D-pad pitch/turn handled via keyboard key mapping
 	 *
 	 *  Button indices use SDL_CONTROLLER_BUTTON_* constants.
@@ -549,15 +549,15 @@ constexpr enumerated_array<uint8_t, MAX_CONTROLS, dxx_kconfig_ui_kc_joystick> De
 	 */
 #if DXX_BUILD_DESCENT == 1
 		// Fire primary
-		GC_AXIS_BUTTON(SDL_CONTROLLER_AXIS_TRIGGERRIGHT),
+		GC_AXIS_BUTTON(SDL_GAMEPAD_AXIS_RIGHT_TRIGGER),
 		// Fire secondary
-		GC_AXIS_BUTTON(SDL_CONTROLLER_AXIS_TRIGGERLEFT),
+		GC_AXIS_BUTTON(SDL_GAMEPAD_AXIS_LEFT_TRIGGER),
 		// Accelerate (unbound, using throttle axis)
 		0xff,
 		// Reverse (unbound, using throttle axis)
 		0xff,
 		// Fire flare
-		SDL_CONTROLLER_BUTTON_Y,
+		SDL_GAMEPAD_BUTTON_NORTH,
 		// Slide on (unbound)
 		0xff,
 		// Slide left (unbound)
@@ -571,47 +571,47 @@ constexpr enumerated_array<uint8_t, MAX_CONTROLS, dxx_kconfig_ui_kc_joystick> De
 		// Bank on (unbound)
 		0xff,
 		// Bank left
-		SDL_CONTROLLER_BUTTON_LEFTSHOULDER,
+		SDL_GAMEPAD_BUTTON_LEFT_SHOULDER,
 		// Bank right
-		SDL_CONTROLLER_BUTTON_RIGHTSHOULDER,
+		SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER,
 		// Pitch U/D (inverted)
-		SDL_CONTROLLER_AXIS_RIGHTY, 1,
+		SDL_GAMEPAD_AXIS_RIGHTY, 1,
 		// Turn L/R
-		SDL_CONTROLLER_AXIS_RIGHTX, 0,
+		SDL_GAMEPAD_AXIS_RIGHTX, 0,
 		// Slide L/R
-		SDL_CONTROLLER_AXIS_LEFTX, 0,
+		SDL_GAMEPAD_AXIS_LEFTX, 0,
 		// Slide U/D (unbound)
 		0xff, 0,
 		// Bank L/R (unbound)
 		0xff, 0,
 		// Throttle
-		SDL_CONTROLLER_AXIS_LEFTY, 0,
+		SDL_GAMEPAD_AXIS_LEFTY, 0,
 		// Rear view
-		SDL_CONTROLLER_BUTTON_X,
+		SDL_GAMEPAD_BUTTON_WEST,
 		// Drop bomb
-		SDL_CONTROLLER_BUTTON_B,
+		SDL_GAMEPAD_BUTTON_EAST,
 		// Automap
-		SDL_CONTROLLER_BUTTON_DPAD_DOWN, 0xff,
+		SDL_GAMEPAD_BUTTON_DPAD_DOWN, 0xff,
 		// OR column (unbound)
 		0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
 		0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
 		// Cycle primary
-		SDL_CONTROLLER_BUTTON_DPAD_LEFT,
+		SDL_GAMEPAD_BUTTON_DPAD_LEFT,
 		// Cycle secondary
-		SDL_CONTROLLER_BUTTON_DPAD_RIGHT,
+		SDL_GAMEPAD_BUTTON_DPAD_RIGHT,
 		// OR / remaining (unbound)
 		0xff, 0xff, 0xff, 0xff
 #elif DXX_BUILD_DESCENT == 2
 		// Fire primary
-		GC_AXIS_BUTTON(SDL_CONTROLLER_AXIS_TRIGGERRIGHT),
+		GC_AXIS_BUTTON(SDL_GAMEPAD_AXIS_RIGHT_TRIGGER),
 		// Fire secondary
-		GC_AXIS_BUTTON(SDL_CONTROLLER_AXIS_TRIGGERLEFT),
+		GC_AXIS_BUTTON(SDL_GAMEPAD_AXIS_LEFT_TRIGGER),
 		// Accelerate (unbound, using throttle axis)
 		0xff,
 		// Reverse (unbound, using throttle axis)
 		0xff,
 		// Fire flare
-		SDL_CONTROLLER_BUTTON_Y,
+		SDL_GAMEPAD_BUTTON_NORTH,
 		// Slide on (unbound)
 		0xff,
 		// Slide left (unbound)
@@ -625,39 +625,39 @@ constexpr enumerated_array<uint8_t, MAX_CONTROLS, dxx_kconfig_ui_kc_joystick> De
 		// Bank on (unbound)
 		0xff,
 		// Bank left
-		SDL_CONTROLLER_BUTTON_LEFTSHOULDER,
+		SDL_GAMEPAD_BUTTON_LEFT_SHOULDER,
 		// Bank right
-		SDL_CONTROLLER_BUTTON_RIGHTSHOULDER,
+		SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER,
 		// Pitch U/D (inverted)
-		SDL_CONTROLLER_AXIS_RIGHTY, 1,
+		SDL_GAMEPAD_AXIS_RIGHTY, 1,
 		// Turn L/R
-		SDL_CONTROLLER_AXIS_RIGHTX, 0,
+		SDL_GAMEPAD_AXIS_RIGHTX, 0,
 		// Slide L/R
-		SDL_CONTROLLER_AXIS_LEFTX, 0,
+		SDL_GAMEPAD_AXIS_LEFTX, 0,
 		// Slide U/D (unbound)
 		0xff, 0,
 		// Bank L/R (unbound)
 		0xff, 0,
 		// Throttle
-		SDL_CONTROLLER_AXIS_LEFTY, 0,
+		SDL_GAMEPAD_AXIS_LEFTY, 0,
 		// Rear view
-		SDL_CONTROLLER_BUTTON_X,
+		SDL_GAMEPAD_BUTTON_WEST,
 		// Drop bomb
-		SDL_CONTROLLER_BUTTON_B,
+		SDL_GAMEPAD_BUTTON_EAST,
 		// Afterburner
-		SDL_CONTROLLER_BUTTON_A,
+		SDL_GAMEPAD_BUTTON_SOUTH,
 		// Cycle primary
-		SDL_CONTROLLER_BUTTON_DPAD_LEFT,
+		SDL_GAMEPAD_BUTTON_DPAD_LEFT,
 		// Cycle secondary
-		SDL_CONTROLLER_BUTTON_DPAD_RIGHT,
+		SDL_GAMEPAD_BUTTON_DPAD_RIGHT,
 		// Headlight
-		SDL_CONTROLLER_BUTTON_DPAD_UP,
+		SDL_GAMEPAD_BUTTON_DPAD_UP,
 		// OR column (unbound)
 		0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
 		0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
 		0xff, 0xff, 0xff,
 		// Automap
-		SDL_CONTROLLER_BUTTON_DPAD_DOWN, 0xff,
+		SDL_GAMEPAD_BUTTON_DPAD_DOWN, 0xff,
 		// Energy->Shield (unbound)
 		0xff, 0xff,
 		// Remaining (unbound)
@@ -1223,8 +1223,8 @@ window_event_result kc_menu::event_handler(const d_event &event)
 	// before joy_translate_menu_key would consume them via gc_key_map.
 	const bool skip_translate = !changing &&
 		(event.type == event_type::joystick_button_down || event.type == event_type::joystick_button_up) &&
-		(event_joystick_get_button(event) == SDL_CONTROLLER_BUTTON_START ||
-		 event_joystick_get_button(event) == SDL_CONTROLLER_BUTTON_RIGHTSTICK);
+		(event_joystick_get_button(event) == SDL_GAMEPAD_BUTTON_START ||
+		 event_joystick_get_button(event) == SDL_GAMEPAD_BUTTON_RIGHT_STICK);
 	if (!skip_translate)
 	if (!changing && joy_translate_menu_key(event))
 		return window_event_result::handled;
@@ -1275,12 +1275,12 @@ window_event_result kc_menu::event_handler(const d_event &event)
 			else if (!changing)
 			{
 				const auto button = event_joystick_get_button(event);
-				if (button == SDL_CONTROLLER_BUTTON_RIGHTSTICK)
+				if (button == SDL_GAMEPAD_BUTTON_RIGHT_STICK)
 				{
 					mitems[citem].value = 255;
 					return window_event_result::handled;
 				}
-				if (button == SDL_CONTROLLER_BUTTON_START)
+				if (button == SDL_GAMEPAD_BUTTON_START)
 				{
 					start_press_time = timer_query();
 					return window_event_result::handled;
@@ -1288,7 +1288,7 @@ window_event_result kc_menu::event_handler(const d_event &event)
 			}
 			break;
 		case event_type::joystick_button_up:
-			if (!changing && event_joystick_get_button(event) == SDL_CONTROLLER_BUTTON_START && start_press_time)
+			if (!changing && event_joystick_get_button(event) == SDL_GAMEPAD_BUTTON_START && start_press_time)
 			{
 				const auto held = timer_query() - start_press_time;
 				start_press_time = 0;
