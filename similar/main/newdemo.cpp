@@ -587,7 +587,7 @@ static void nd_read_object(const vmobjptridx_t obj)
 		? std::pair<fix, player_info>(obj->shields, pl_info)
 		: std::pair<fix, player_info>(0, {});
 
-	*obj = {};
+	obj->reset();
 	obj->shields = saved.first;
 	obj->ctype.player_info = saved.second;
 	obj->next = obj->prev = object_none;

@@ -1293,7 +1293,7 @@ imobjptridx_t obj_create(d_level_unique_object_state &LevelUniqueObjectState, co
 	 * test reports a problem.
 	 */
 	DXX_CHECK_VAR_IS_DEFINED(obj->signature);
-	*obj = {};
+	obj->reset();
 	// Tell Valgrind to warn on any uninitialized fields.
 	DXX_POISON_VAR(*obj, 0xfd);
 
