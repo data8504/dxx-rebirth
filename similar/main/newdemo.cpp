@@ -182,7 +182,19 @@ sbyte Newdemo_do_interpolate{1};
 int Newdemo_num_written;
 #if DXX_BUILD_DESCENT == 2
 ubyte DemoDoRight{0},DemoDoLeft=0;
-object DemoRightExtra,DemoLeftExtra;
+
+/* Demo extra views use only the type to select render behavior and the
+ * segment, position, and orientation to place the camera.  Materialize this
+ * compact state in the managed object array only when the view is rendered.
+ */
+struct demo_extra_viewer_snapshot
+{
+	object_type type;
+	segnum_t segnum;
+	vms_vector pos;
+	vms_matrix orient;
+};
+static demo_extra_viewer_snapshot DemoRightExtra, DemoLeftExtra;
 
 static void nd_render_extras (ubyte which,const object &obj);
 #endif
@@ -3649,6 +3661,17 @@ static window_event_result newdemo_back_frames(int frames)
 
 static window_event_result interpolate_frame(fix d_play, fix d_recorded)
 {
+	/* Interpolation modifies only the camera-space object pose.  Preserve the
+	 * signature for matching and the render type for deciding whether an
+	 * orientation matrix is meaningful.
+	 */
+	struct interpolation_object_snapshot
+	{
+		object_signature_t signature;
+		vms_vector pos;
+		vms_matrix orient;
+		render_type render;
+	};
 	auto &Objects = LevelUniqueObjectState.Objects;
 	auto &vmobjptr = Objects.vmptr;
 	fix factor;
@@ -3662,7 +3685,10 @@ static window_event_result interpolate_frame(fix d_play, fix d_recorded)
 		factor = F1_0;
 
 	const auto num_cur_objs = Objects.get_count();
-	std::vector<object> cur_objs(Objects.begin(), Objects.begin() + num_cur_objs);
+	std::vector<interpolation_object_snapshot> cur_objs;
+	cur_objs.reserve(num_cur_objs);
+	for (const auto &obj : partial_const_range(Objects, num_cur_objs))
+		cur_objs.emplace_back(interpolation_object_snapshot{obj.signature, obj.pos, obj.orient, obj.render_type});
 
 	Newdemo_vcr_state = ND_STATE_PAUSED;
 	if (newdemo_read_frame_information(0) == -1) {
@@ -3680,7 +3706,7 @@ static window_event_result interpolate_frame(fix d_play, fix d_recorded)
 			{
 				if (i.signature == obj.signature)
 				{
-					const auto rtype = i.render_type;
+					const auto rtype = i.render;
 					fix delta_x, delta_y, delta_z;
 
 					//  Extract the angles from the object orientation matrix.
@@ -3742,8 +3768,22 @@ static window_event_result interpolate_frame(fix d_play, fix d_recorded)
 	}
 	Newdemo_vcr_state = ND_STATE_PLAYBACK;
 
-	std::copy(cur_objs.begin(), cur_objs.begin() + num_cur_objs, Objects.begin());
-	Objects.set_count(num_cur_objs);
+	/* Reading the current frame again reconstructs all object state.  Apply
+	 * only the position and orientation adjusted above instead of replacing
+	 * those managed objects with off-array copies.
+	 */
+	for (const auto &i : cur_objs)
+	{
+		for (auto &obj : vmobjptr)
+		{
+			if (i.signature == obj.signature)
+			{
+				obj.pos = i.pos;
+				obj.orient = i.orient;
+				break;
+			}
+		}
+	}
 
 	return result;
 }
@@ -3880,10 +3920,21 @@ window_event_result newdemo_playback_one_frame()
 				d_recorded = nd_recorded_total - nd_playback_total;
 
 				while (nd_recorded_total - nd_playback_total < FrameTime) {
-					unsigned num_objs;
-
-					num_objs = Highest_object_index;
-					std::vector<object> cur_objs(Objects.begin(), Objects.begin() + num_objs + 1);
+					/* Frame skipping carries forward only the interpolated
+					 * position and orientation of objects with matching
+					 * signatures.
+					 */
+					struct preserved_object_pose
+					{
+						object_signature_t signature;
+						vms_vector pos;
+						vms_matrix orient;
+					};
+					const auto num_objs = Objects.get_count();
+					std::vector<preserved_object_pose> cur_objs;
+					cur_objs.reserve(num_objs);
+					for (const auto &obj : partial_const_range(Objects, num_objs))
+						cur_objs.emplace_back(preserved_object_pose{obj.signature, obj.pos, obj.orient});
 
 					const int level = Current_level_num;
 					if (newdemo_read_frame_information(0) == -1) {
@@ -3901,10 +3952,10 @@ window_event_result newdemo_playback_one_frame()
 
 					//  for each new object in the frame just read in, determine if there is
 					//  a corresponding object that we have been interpolating.  If so, then
-					//  copy that interpolated object to the new Objects array so that the
+					//  copy that interpolated pose to the new Objects array so that the
 					//  interpolated position and orientation can be preserved.
 
-					range_for (auto &i, partial_const_range(cur_objs, 1 + num_objs)) {
+					range_for (auto &i, cur_objs) {
 						for (auto &obj : vmobjptr)
 						{
 							if (i.signature == obj.signature)
@@ -4408,6 +4459,7 @@ static void nd_render_extras (ubyte which,const object &obj)
 {
 	ubyte w=which>>4;
 	ubyte type=which&15;
+	const demo_extra_viewer_snapshot snapshot{obj.type, obj.segnum, obj.pos, obj.orient};
 
 	if (which==255)
 	{
@@ -4417,12 +4469,25 @@ static void nd_render_extras (ubyte which,const object &obj)
 
 	if (w)
 	{
-		DemoRightExtra = obj;  DemoDoRight=type;
+		DemoRightExtra = snapshot;  DemoDoRight=type;
 	}
 	else
 	{
-		DemoLeftExtra = obj; DemoDoLeft=type;
+		DemoLeftExtra = snapshot; DemoDoLeft=type;
 	}
 
+}
+
+const object &newdemo_get_extra_viewer(const demo_extra_view which)
+{
+	auto &viewer = LevelUniqueObjectState.Objects.back();
+	const auto &snapshot = which == demo_extra_view::left
+		? DemoLeftExtra
+		: DemoRightExtra;
+	viewer.type = snapshot.type;
+	viewer.segnum = snapshot.segnum;
+	viewer.pos = snapshot.pos;
+	viewer.orient = snapshot.orient;
+	return viewer;
 }
 #endif

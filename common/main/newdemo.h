@@ -72,7 +72,12 @@ enum class sound_pan : int;
 #ifdef DXX_BUILD_DESCENT
 #if DXX_BUILD_DESCENT == 2
 extern ubyte DemoDoRight,DemoDoLeft;
-extern struct object DemoRightExtra,DemoLeftExtra;
+enum class demo_extra_view : uint8_t
+{
+	left,
+	right,
+};
+const object &newdemo_get_extra_viewer(demo_extra_view);
 #endif
 
 // Functions called during recording process...
