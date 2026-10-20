@@ -67,7 +67,6 @@ jobs:
           -j4
           -k
           opengl=1
-          sdl2=1
           macos_add_frameworks=0
           macos_bundle_libs=0
           register_install_target=0
