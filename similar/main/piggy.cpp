@@ -121,7 +121,8 @@ static std::unique_ptr<ubyte[]> SoundBits;
 
 struct SoundFile
 {
-	std::array<char, 15> name;
+	using name_type = std::array<char, 15>;
+	name_type name;
 };
 }
 
@@ -158,6 +159,13 @@ static char default_pigfile_registered[]{DEFAULT_PIGFILE_REGISTERED};
 #endif
 namespace {
 static std::array<SoundFile, MAX_SOUND_FILES> AllSounds;
+
+static SoundFile::name_type build_sound_name(const std::span<const char> name)
+{
+	SoundFile::name_type result{};
+	std::memcpy(result.data(), name.data(), std::min(result.size() - 1, name.size()));
+	return result;
+}
 
 #define DBM_FLAG_ABM    64 // animated bitmap
 
@@ -439,8 +447,7 @@ int piggy_register_sound(digi_sound &&snd, const std::span<const char> name)
 	Assert( Num_sound_files < MAX_SOUND_FILES );
 
 	auto &asn = AllSounds[Num_sound_files].name;
-	std::memcpy(asn.data(), name.data(), std::min(asn.size() - 1, name.size()));
-	asn.back() = 0;
+	asn = build_sound_name(name);
 	hashtable_insert(&AllDigiSndNames, asn.data(), Num_sound_files);
 	auto &gs = GameSounds[Num_sound_files];
 	gs = std::move(snd);
@@ -486,7 +493,8 @@ bitmap_index piggy_find_bitmap(const std::span<const char> entry_name)
 
 int piggy_find_sound(const std::span<const char> name)
 {
-	const auto i = hashtable_search(&AllDigiSndNames, name.data());
+	const auto key{build_sound_name(name)};
+	const auto i = hashtable_search(&AllDigiSndNames, key.data());
 	if ( i < 0 )
 		return 255;
 	return i;
