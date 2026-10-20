@@ -104,10 +104,13 @@ enum class properties_init_result : int8_t
 	shareware,
 };
 #elif DXX_BUILD_DESCENT == 2
-enum class properties_init_result : bool
+enum class properties_init_result : int8_t
 {
 	failure,
 	success,
+#if DXX_USE_EDITOR
+	use_gamedata_read_tbl,
+#endif
 };
 #endif
 
