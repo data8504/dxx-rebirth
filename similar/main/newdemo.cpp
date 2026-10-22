@@ -196,7 +196,7 @@ static void nd_render_extras (ubyte which,const object &obj);
 static int swap_endian = 0;
 
 // playback variables
-static unsigned int nd_playback_v_demosize;
+static PHYSFS_sint64 nd_playback_v_demosize;
 static callsign_t nd_playback_v_save_callsign;
 static sbyte nd_playback_v_at_eof;
 static sbyte nd_playback_v_cntrlcen_destroyed = 0;
@@ -245,10 +245,10 @@ constexpr std::integral_constant<int, 0> shareware{};
 
 int newdemo_get_percent_done()	{
 	if ( Newdemo_state == ND_STATE_PLAYBACK ) {
-		return (PHYSFS_tell(infile) * 100) / nd_playback_v_demosize;
+		return static_cast<int>((PHYSFS_tell(infile) * 100) / nd_playback_v_demosize);
 	}
 	if ( Newdemo_state == ND_STATE_RECORDING ) {
-		return PHYSFS_tell(outfile);
+		return static_cast<int>(std::min<PHYSFS_sint64>(PHYSFS_tell(outfile), std::numeric_limits<int>::max()));
 	}
 	return 0;
 }
@@ -326,6 +326,15 @@ static std::size_t _newdemo_read(void *const buffer, const std::size_t elsize, c
 static std::size_t newdemo_read(std::integral auto *const buffer, const std::size_t elsize, const std::size_t nelem)
 {
 	return _newdemo_read(buffer, {elsize}, {nelem});
+}
+
+static void nd_seek(const PHYSFS_sint64 offset, const int origin = SEEK_SET)
+{
+	const auto base = origin == SEEK_CUR ? PHYSFS_tell(infile)
+		: origin == SEEK_END ? PHYSFS_fileLength(infile) : 0;
+	if (base < 0 || offset < -base || offset > std::numeric_limits<PHYSFS_sint64>::max() - base
+		|| !PHYSFS_seek(infile, static_cast<PHYSFS_uint64>(base + offset)))
+		nd_playback_v_bad_read = -1;
 }
 
 namespace dsx {
@@ -607,7 +616,7 @@ namespace {
 
 static uint16_t nd_get_object_signature(const vcobjptridx_t objp)
 {
-	return (static_cast<uint16_t>(objp->signature) << 9) ^ objp.get_unchecked_index();  // It's OKAY! We made sure, obj->signature is never has a value which short cannot handle!!! We cannot do this otherwise, without breaking the demo format!
+	return static_cast<uint16_t>((static_cast<uint16_t>(objp->signature) << 9) ^ objp.get_unchecked_index());  // It's OKAY! We made sure, obj->signature is never has a value which short cannot handle!!! We cannot do this otherwise, without breaking the demo format!
 }
 
 static void nd_read_object(const vmobjptridx_t obj)
@@ -763,7 +772,7 @@ static void nd_read_object(const vmobjptridx_t obj)
 				if (prev_obj->flags & OF_ATTACHED && prev_obj->ctype.expl_info.attach_parent!=object_none)
 					obj_attach(Objects, Objects.vmptridx(prev_obj->ctype.expl_info.attach_parent), obj);
 				else
-					obj->flags &= ~OF_ATTACHED;
+					obj->flags &= uint8_t{UINT8_MAX ^ OF_ATTACHED};
 			}
 			else
 				obj_attach(Objects, Objects.vmptridx(prev_obj), obj);
@@ -820,8 +829,10 @@ static void nd_read_object(const vmobjptridx_t obj)
 		if (tmo==-1)
 			obj->rtype.pobj_info.tmap_override = texture_index{UINT16_MAX};
 		else {
-			auto xlated_tmo{tmap_xlate_table[tmo]};
-			if (xlated_tmo >= Textures.size())
+			auto xlated_tmo = texture_index{};
+			if (tmo >= 0 && std::cmp_less(tmo, tmap_xlate_table.size()))
+				xlated_tmo = tmap_xlate_table[static_cast<std::size_t>(tmo)];
+			if (tmo < 0 || std::cmp_greater_equal(tmo, tmap_xlate_table.size()) || xlated_tmo >= Textures.size())
 			{
 				[[unlikely]];
 				con_printf(CON_URGENT, "Invalid texture override in demo: tmo=%i, xlated_tmo=%hu; setting xlated_tmo=0", tmo, underlying_value(xlated_tmo));
@@ -1121,7 +1132,7 @@ void newdemo_record_start_demo()
 	nd_record_v_primary_ammo = -1;
 	nd_record_v_secondary_ammo = -1;
 
-	for (const uint8_t i : xrange(MAX_PRIMARY_WEAPONS))
+	for (uint8_t i = 0; i < MAX_PRIMARY_WEAPONS; ++i)
 		nd_write_short(primary_weapon_index{i} == primary_weapon_index::vulcan ? player_info.vulcan_ammo : uint16_t{0});
 
 	range_for (auto &i, player_info.secondary_ammo)
@@ -1235,7 +1246,7 @@ void newdemo_record_viewer_object(const vcobjptridx_t obj)
 	pause_game_world_time p;
 	nd_write_byte(ND_EVENT_VIEWER_OBJECT);
 #if DXX_BUILD_DESCENT == 2
-	nd_record_v_viewobjs[obj]=RenderingType+1;
+	nd_record_v_viewobjs[obj] = static_cast<int8_t>(RenderingType + 1);
 	nd_record_v_rendering[RenderingType]=1;
 	nd_write_byte(RenderingType);
 #endif
@@ -1772,12 +1783,7 @@ static int newdemo_read_demo_start(const purpose_type purpose)
 				if (+(Newdemo_game_mode & GM_MULTI_COOP)) {
 					nd_read_fields(purpose == purpose_type::rewrite, player_info.mission.score);
 				} else {
-					nd_read_short(&player_info.net_killed_total);
-					nd_read_short(&player_info.net_kills_total);
-					if (purpose == purpose_type::rewrite)
-					{
-						nd_write_short(player_info.net_killed_total, player_info.net_kills_total);
-					}
+					nd_read_fields(purpose == purpose_type::rewrite, player_info.net_killed_total, player_info.net_kills_total);
 				}
 			}
 			Game_mode = Newdemo_game_mode;
@@ -1805,7 +1811,7 @@ static int newdemo_read_demo_start(const purpose_type purpose)
 	}
 #endif
 
-	for (const uint8_t i : xrange(MAX_PRIMARY_WEAPONS))
+	for (uint8_t i = 0; i < MAX_PRIMARY_WEAPONS; ++i)
 	{
 		auto s = nd_read_short<uint16_t>();
 		if (primary_weapon_index{i} == primary_weapon_index::vulcan)
@@ -1862,12 +1868,7 @@ static int newdemo_read_demo_start(const purpose_type purpose)
 
 	nd_recorded_total = 0;
 	nd_playback_total = 0;
-	nd_read_byte(&energy);
-	nd_read_byte(&shield);
-	if (purpose == purpose_type::rewrite)
-	{
-		nd_write_byte(energy, shield);
-	}
+	nd_read_fields(purpose == purpose_type::rewrite, energy, shield);
 
 	auto recorded_player_flags = nd_read_int<int32_t>();
 	player_info.powerup_flags = player_flags(recorded_player_flags);
@@ -1903,7 +1904,7 @@ static int newdemo_read_demo_start(const purpose_type purpose)
 			Primary_weapon = static_cast<primary_weapon_index>(Secondary_weapon.get_active());
 			Secondary_weapon = static_cast<secondary_weapon_index>(c);
 		} else
-			PHYSFS_seek(infile, PHYSFS_tell(infile) - 1);
+			nd_seek(-1, SEEK_CUR);
 	}
 #endif
 
@@ -1921,7 +1922,7 @@ static void newdemo_pop_ctrlcen_triggers()
 	auto &WallAnims = GameSharedState.WallAnims;
 	auto &Walls = LevelUniqueWallSubsystemState.Walls;
 	auto &vcwallptr = Walls.vcptr;
-	for (int i = 0; i < ControlCenterTriggers.num_links; i++) {
+	for (std::size_t i = 0; std::cmp_less(i, ControlCenterTriggers.num_links); ++i) {
 		const auto &&seg = vmsegptridx(ControlCenterTriggers.seg[i]);
 		const auto side = ControlCenterTriggers.side[i];
 		const auto csegi = seg->shared_segment::children[side];
@@ -1947,12 +1948,12 @@ static void newdemo_pop_ctrlcen_triggers()
 			continue;
 		}
 		const auto anim_num = vcwallptr(wall_num)->clip_num;
-		auto &wa = WallAnims[anim_num];
+		auto &wa = WallAnims.at(static_cast<std::size_t>(anim_num));
 		const auto n = wa.num_frames;
 		auto &seg0uside = seg->unique_segment::sides[side];
 		auto &seg1uside = csegp->unique_segment::sides[cside];
 		const auto next_tmap = wa.frames[n - 1];
-		if (wa.flags & WCF_TMAP1)
+		if (wa.flags & int16_t{WCF_TMAP1})
 			seg0uside.tmap_num = seg1uside.tmap_num = texture1_value{next_tmap};
 		else
 			seg0uside.tmap_num2 = seg1uside.tmap_num2 = texture2_value{next_tmap};
@@ -2053,7 +2054,7 @@ static int newdemo_read_frame_information(int rewrite)
 		case ND_EVENT_VIEWER_OBJECT:        // Followed by an object structure
 		{
 #if DXX_BUILD_DESCENT == 2
-			sbyte WhichWindow;
+			uint8_t WhichWindow;
 			nd_read_byte (&WhichWindow);
 			if (rewrite)
 				nd_write_byte(WhichWindow);
@@ -2126,7 +2127,7 @@ static int newdemo_read_frame_information(int rewrite)
 
 				obj_link_unchecked(Objects.vmptr, obj, Segments.vmptridx(segnum));
 				if (obj->type == object_type::OBJ_PLAYER && +(Newdemo_game_mode & GM_MULTI)) {
-					int player;
+					unsigned player;
 
 					if (+(Newdemo_game_mode & GM_TEAM))
 						player = static_cast<unsigned>(multi_get_team_from_player(Netgame, get_player_id(obj)));
@@ -2136,12 +2137,12 @@ static int newdemo_read_frame_information(int rewrite)
 						break;
 					player--;
 
-					for (int i=0;i<Polygon_models[obj->rtype.pobj_info.model_num.dsx].n_textures;i++)
+					for (unsigned i = 0; i < Polygon_models[obj->rtype.pobj_info.model_num.dsx].n_textures; ++i)
 						multi_player_textures[player][i] = ObjBitmaps[ObjBitmapPtrs[Polygon_models[obj->rtype.pobj_info.model_num.dsx].first_texture+i]];
 
-					multi_player_textures[player][4] = ObjBitmaps[ObjBitmapPtrs[First_multi_bitmap_num+(player)*2]];
-					multi_player_textures[player][5] = ObjBitmaps[ObjBitmapPtrs[First_multi_bitmap_num+(player)*2+1]];
-					obj->rtype.pobj_info.alt_textures = player+1;
+					multi_player_textures[player][4] = ObjBitmaps[ObjBitmapPtrs[static_cast<unsigned>(First_multi_bitmap_num) + player * 2]];
+					multi_player_textures[player][5] = ObjBitmaps[ObjBitmapPtrs[static_cast<unsigned>(First_multi_bitmap_num) + player * 2+1]];
+					obj->rtype.pobj_info.alt_textures = static_cast<uint8_t>(player + 1);
 				}
 			}
 		}
@@ -2194,7 +2195,7 @@ static int newdemo_read_frame_information(int rewrite)
 			break;
 
 		case ND_EVENT_WALL_HIT_PROCESS: {
-			int player;
+			unsigned player;
 			int side;
 			segnum_t segnum;
 			fix damage;
@@ -2384,7 +2385,7 @@ static int newdemo_read_frame_information(int rewrite)
 
 		case ND_EVENT_PLAYER_ENERGY: {
 			ubyte energy;
-			ubyte old_energy;
+			ubyte old_energy{UINT8_MAX};
 
 			if (!shareware)
 			nd_read_byte(&old_energy);
@@ -2431,7 +2432,7 @@ static int newdemo_read_frame_information(int rewrite)
 
 		case ND_EVENT_PLAYER_SHIELD: {
 			ubyte shield;
-			ubyte old_shield;
+			ubyte old_shield{UINT8_MAX};
 
 			if (!shareware)
 			nd_read_byte(&old_shield);
@@ -2568,7 +2569,7 @@ static int newdemo_read_frame_information(int rewrite)
 			//laser is, so create a laser whose parent is the player
 				laser_parent dummy;
 				dummy.parent_type = object_type::OBJ_PLAYER;
-				dummy.parent_num = Player_num;
+				dummy.parent_num = static_cast<objnum_t>(Player_num);
 				check_effect_blowup(LevelSharedDestructibleLightState, Vclip, vmsegptridx(segnum), static_cast<sidenum_t>(side), pnt, dummy, 0, 0);
 #endif
 			}
@@ -2696,7 +2697,7 @@ static int newdemo_read_frame_information(int rewrite)
 
 		case ND_EVENT_MULTI_CONNECT: {
 			uint8_t pnum, new_player;
-			int killed_total, kills_total;
+			int killed_total{}, kills_total{};
 			callsign_t new_callsign, old_callsign;
 
 			nd_read_byte(&pnum);
@@ -2723,8 +2724,8 @@ static int newdemo_read_frame_information(int rewrite)
 				plr.connected = player_connection_status::disconnected;
 				if (!new_player) {
 					plr.callsign = old_callsign;
-					player_info.net_killed_total = killed_total;
-					player_info.net_kills_total = kills_total;
+					player_info.net_killed_total = static_cast<int16_t>(killed_total);
+					player_info.net_kills_total = static_cast<int16_t>(kills_total);
 				} else {
 					N_players--;
 				}
@@ -2834,9 +2835,9 @@ static int newdemo_read_frame_information(int rewrite)
 
 			auto &player_info = get_local_plrobj().ctype.player_info;
 			if (playing_backward())
-				player_info.secondary_ammo[player_info.Secondary_weapon] = old_ammo;
+				player_info.secondary_ammo[player_info.Secondary_weapon] = static_cast<uint8_t>(old_ammo);
 			else if (playing_forward())
-				player_info.secondary_ammo[player_info.Secondary_weapon] = new_ammo;
+				player_info.secondary_ammo[player_info.Secondary_weapon] = static_cast<uint8_t>(new_ammo);
 			break;
 		}
 
@@ -2853,11 +2854,11 @@ static int newdemo_read_frame_information(int rewrite)
 				const auto &&csegp = vmsegptr(sseg.children[side]);
 				const auto &&cside = find_connect_side(segp, csegp);
 				const auto anim_num = vmwallptr(sseg.sides[side].wall_num)->clip_num;
-				auto &wa = WallAnims[anim_num];
+				auto &wa = WallAnims.at(static_cast<std::size_t>(anim_num));
 				auto &seg0uside = segp->unique_segment::sides[side];
 				auto &seg1uside = csegp->unique_segment::sides[cside];
 				const auto next_tmap = wa.frames[0];
-				if (wa.flags & WCF_TMAP1)
+				if (wa.flags & int16_t{WCF_TMAP1})
 					seg0uside.tmap_num = seg1uside.tmap_num = texture1_value{next_tmap};
 				else
 					seg0uside.tmap_num2 = seg1uside.tmap_num2 = texture2_value{next_tmap};
@@ -2881,7 +2882,8 @@ static int newdemo_read_frame_information(int rewrite)
 
 #if DXX_BUILD_DESCENT == 2
 		case ND_EVENT_CLOAKING_WALL: {
-			uint8_t type, state, cloak_value;
+			uint8_t type, state;
+			int8_t cloak_value;
 			wallnum_t back_wall_num, front_wall_num;
 			short l0,l1,l2,l3;
 
@@ -2971,7 +2973,8 @@ static int newdemo_read_frame_information(int rewrite)
 			{
 				unsigned num_walls;
 				nd_read_int (&num_walls);
-				Walls.set_count(num_walls);
+				if (num_walls > Walls.size()) { nd_playback_v_bad_read = -1; done = -1; break; }
+				Walls.set_count(static_cast<decltype(Walls.get_count())>(num_walls));
 				if (rewrite)
 					nd_write_int (Walls.get_count());
 				for (auto &w : vmwallptr)
@@ -3029,7 +3032,7 @@ static int newdemo_read_frame_information(int rewrite)
 
 		case ND_EVENT_EOF: {
 			done=-1;
-			PHYSFS_seek(infile, PHYSFS_tell(infile) - 1);        // get back to the EOF marker
+			nd_seek(-1, SEEK_CUR);        // get back to the EOF marker
 			nd_playback_v_at_eof = 1;
 			nd_playback_v_framecount++;
 			break;
@@ -3083,7 +3086,7 @@ window_event_result newdemo_goto_beginning()
 {
 	//if (nd_playback_v_framecount == 0)
 	//	return;
-	PHYSFS_seek(infile, 0);
+	nd_seek(0);
 	Newdemo_vcr_state = ND_STATE_PLAYBACK;
 	if (newdemo_read_demo_start(purpose_type::chose_play))
 		newdemo_stop_playback();
@@ -3106,9 +3109,10 @@ window_event_result newdemo_goto_end(int to_rewrite)
 	short frame_length{0}, byte_count=0, bshort=0;
 	sbyte level{0}, bbyte=0, cloaked=0;
 	ubyte energy{0}, shield=0;
-	int loc{0}, bint=0;
+	PHYSFS_sint64 loc{0};
+	int bint{0};
 
-	PHYSFSX_fseek(infile, -2, SEEK_END);
+	nd_seek(-2, SEEK_END);
 	nd_read_byte(&level);
 
 	if (!to_rewrite)
@@ -3138,7 +3142,7 @@ window_event_result newdemo_goto_end(int to_rewrite)
 	if (shareware)
 	{
 		if (+(Newdemo_game_mode & GM_MULTI)) {
-			PHYSFSX_fseek(infile, -10, SEEK_END);
+			nd_seek(-10, SEEK_END);
 			nd_read_byte(&cloaked);
 			for (playernum_t i = 0; i < MAX_PLAYERS; i++)
 			{
@@ -3155,15 +3159,15 @@ window_event_result newdemo_goto_end(int to_rewrite)
 		if (to_rewrite)
 			return window_event_result::handled;
 
-		PHYSFSX_fseek(infile, -12, SEEK_END);
+		nd_seek(-12, SEEK_END);
 		nd_read_short(&frame_length);
 	}
 	else
 #endif
 	{
-	PHYSFSX_fseek(infile, -4, SEEK_END);
+	nd_seek(-4, SEEK_END);
 	nd_read_short(&byte_count);
-	PHYSFSX_fseek(infile, -2 - byte_count, SEEK_CUR);
+	nd_seek(-2 - byte_count, SEEK_CUR);
 
 	nd_read_short(&frame_length);
 	loc = PHYSFS_tell(infile);
@@ -3197,7 +3201,7 @@ window_event_result newdemo_goto_end(int to_rewrite)
 		player_info.invulnerable_time = GameTime64 - (INVULNERABLE_TIME_MAX / 2);
 	player_info.Primary_weapon = static_cast<primary_weapon_index>(nd_read_byte<int8_t>());
 	player_info.Secondary_weapon = static_cast<secondary_weapon_index>(nd_read_byte<int8_t>());
-	for (const uint8_t i : xrange(MAX_PRIMARY_WEAPONS))
+	for (uint8_t i = 0; i < MAX_PRIMARY_WEAPONS; ++i)
 	{
 		auto s = nd_read_short<uint16_t>();
 		if (primary_weapon_index{i} == primary_weapon_index::vulcan)
@@ -3229,12 +3233,12 @@ window_event_result newdemo_goto_end(int to_rewrite)
 	if (to_rewrite)
 		return window_event_result::handled;
 
-	PHYSFS_seek(infile, loc);
+	nd_seek(loc);
 	}
-	PHYSFSX_fseek(infile, -frame_length, SEEK_CUR);
+	nd_seek(-frame_length, SEEK_CUR);
 	nd_read_int(&nd_playback_v_framecount);            // get the frame count
 	nd_playback_v_framecount--;
-	PHYSFSX_fseek(infile, 4, SEEK_CUR);
+	nd_seek(4, SEEK_CUR);
 	Newdemo_vcr_state = ND_STATE_PLAYBACK;
 	newdemo_read_frame_information(0); // then the frame information
 	Newdemo_vcr_state = ND_STATE_PAUSED;
@@ -3247,9 +3251,9 @@ static window_event_result newdemo_back_frames(int frames)
 	short last_frame_length;
 	for (int i = 0; i < frames; i++)
 	{
-		PHYSFS_seek(infile, PHYSFS_tell(infile) - 10);
+		nd_seek(-10, SEEK_CUR);
 		nd_read_short(&last_frame_length);
-		PHYSFS_seek(infile, PHYSFS_tell(infile) + 8 - last_frame_length);
+		nd_seek(8 - last_frame_length, SEEK_CUR);
 
 		if (!nd_playback_v_at_eof && newdemo_read_frame_information(0) == -1) {
 			newdemo_stop_playback();
@@ -3258,9 +3262,9 @@ static window_event_result newdemo_back_frames(int frames)
 		if (nd_playback_v_at_eof)
 			nd_playback_v_at_eof = 0;
 
-		PHYSFS_seek(infile, PHYSFS_tell(infile) - 10);
+		nd_seek(-10, SEEK_CUR);
 		nd_read_short(&last_frame_length);
-		PHYSFS_seek(infile, PHYSFS_tell(infile) + 8 - last_frame_length);
+		nd_seek(8 - last_frame_length, SEEK_CUR);
 	}
 
 	return window_event_result::handled;
@@ -3281,7 +3285,7 @@ static window_event_result interpolate_frame(fix d_play, fix d_recorded)
 	auto &Objects = LevelUniqueObjectState.Objects;
 	auto &vmobjptr = Objects.vmptr;
 	fix factor;
-	static fix InterpolStep = fl2f(.01);
+	static fix InterpolStep = fl2f(.01f);
 
 	if (nd_playback_v_framecount < 1)
 		return window_event_result::ignored;
@@ -3354,7 +3358,7 @@ static window_event_result interpolate_frame(fix d_play, fix d_recorded)
 				}
 			}
 		}
-		InterpolStep = fl2f(.01);
+		InterpolStep = fl2f(.01f);
 	}
 
 	// get back to original position in the demo file.  Reread the current
@@ -3417,7 +3421,7 @@ window_event_result newdemo_playback_one_frame()
 		else
 			frames_back = 1;
 		if (nd_playback_v_at_eof) {
-			PHYSFS_seek(infile, PHYSFS_tell(infile) + (shareware ? -2 : +11));
+			nd_seek((shareware ? -2 : +11), SEEK_CUR);
 		}
 		result = newdemo_back_frames(frames_back);
 
@@ -3612,7 +3616,7 @@ static void newdemo_write_end()
 	auto &vcobjptr = Objects.vcptr;
 	auto &vmobjptr = Objects.vmptr;
 	sbyte cloaked{0};
-	unsigned short byte_count = 0;
+	std::size_t byte_count = 0;
 	nd_write_byte(ND_EVENT_EOF);
 	nd_write_short(nd_record_v_framebytes_written - 1);
 	if (+(Game_mode & GM_MULTI)) {
@@ -3640,7 +3644,7 @@ static void newdemo_write_end()
 		static_cast<int8_t>(static_cast<secondary_weapon_index>(player_info.Secondary_weapon)));
 	byte_count += 8;
 
-	for (const uint8_t i : xrange(MAX_PRIMARY_WEAPONS))
+	for (uint8_t i = 0; i < MAX_PRIMARY_WEAPONS; ++i)
 		nd_write_short(primary_weapon_index{i} == primary_weapon_index::vulcan ? player_info.vulcan_ammo : uint16_t{0});
 
 	range_for (auto &i, player_info.secondary_ammo)
@@ -3816,7 +3820,7 @@ try_again:
 		goto try_again;
 
 	//check to make sure name is ok
-	range_for (const unsigned c, filename)
+	range_for (const unsigned char c, filename)
 	{
 		if (!c)
 			break;
