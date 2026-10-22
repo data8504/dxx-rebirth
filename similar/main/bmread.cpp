@@ -182,7 +182,7 @@ static char 		*arg;
 static short 		clip_count = 0;
 static short 		clip_num;
 static short 		frames;
-static char 		*dest_bm;		//clip number to play when destroyed
+static std::string dest_bm;		//clip number to play when destroyed
 #endif
 }
 }
@@ -698,7 +698,7 @@ int gamedata_read_tbl(d_level_shared_robot_info_state &LevelSharedRobotInfoState
 #if DXX_BUILD_DESCENT == 1
 				dest_bm.clear();
 #elif DXX_BUILD_DESCENT == 2
-				dest_bm=NULL;
+				dest_bm.clear();
 #endif
 				dest_vclip = vclip_index::None;
 				dest_eclip = INT_MAX;
@@ -763,7 +763,13 @@ int gamedata_read_tbl(d_level_shared_robot_info_state &LevelSharedRobotInfoState
 					dest_bm.clear();
 			}
 #elif DXX_BUILD_DESCENT == 2
-			else IFTOK("dest_bm")			dest_bm = strtok( NULL, space_tab );
+			else IFTOK("dest_bm")
+			{
+				if (const auto p = strtok(NULL, space_tab))
+					dest_bm = p;
+				else
+					dest_bm.clear();
+			}
 #endif
 			else IFTOK("dest_vclip")		dest_vclip = build_vclip_index_from_untrusted(get_int());
 			else IFTOK("dest_eclip")		dest_eclip = get_int();
@@ -867,8 +873,8 @@ int gamedata_read_tbl(d_level_shared_robot_info_state &LevelSharedRobotInfoState
 		//make sure all alt sounds refer to valid main sounds
 		for (unsigned i = 0; std::cmp_less(i, num_sounds); ++i)
 		{
-			int alt = AltSounds[i];
-			Assert(alt==0 || alt==-1 || Sounds[alt]!=255);
+			const auto alt = underlying_value(AltSounds[i]);
+			Assert(alt == 0 || alt == underlying_value(sound_effect::None) || (alt < Sounds.size() && Sounds[alt] != sound_effect::None));
 		}
 	}
 	#endif
@@ -977,14 +983,14 @@ static std::size_t bm_read_eclip(std::size_t texture_count, int skip)
 	//load the dest bitmap first, so that after this routine, the last-loaded
 	//texture will be the monitor, so that lighting parameter will be applied
 	//to the correct texture
-	if (dest_bm) {			//deal with bitmap for blown up clip
-		const auto &&r = get_texture(LevelUniqueTmapInfoState.TmapInfo, skip, dest_bm, texture_count);
+	if (!dest_bm.empty()) {			//deal with bitmap for blown up clip
+		const auto &&r = get_texture(LevelUniqueTmapInfoState.TmapInfo, skip, dest_bm.c_str(), texture_count);
 		texture_count = r.texture_count;
 		if (!r.reuse_texture)
 		{
 		}
 		else if (auto &t = Textures[r.idx_updated_texture]; t == bitmap_index{})		//was found, but registered out
-			t = bm_load_sub(skip, dest_bm);
+			t = bm_load_sub(skip, dest_bm.c_str());
 		dest_bm_num = r.idx_updated_texture;
 	}
 #endif
@@ -1074,7 +1080,7 @@ static std::size_t bm_read_eclip(std::size_t texture_count, int skip)
 #if DXX_BUILD_DESCENT == 1
 	if (!dest_bm.empty())
 #elif DXX_BUILD_DESCENT == 2
-	if (dest_bm)
+	if (!dest_bm.empty())
 #endif
 	{			//deal with bitmap for blown up clip
 #if DXX_BUILD_DESCENT == 1
@@ -1730,6 +1736,7 @@ void bm_read_robot(d_level_shared_robot_info_state &LevelSharedRobotInfoState, i
 	first_bitmap_num[n_models] = N_ObjBitmapPtrs;
 
 	auto &Polygon_models = LevelSharedPolygonModelState.Polygon_models;
+	auto previous_model_num = polygon_model_index::None;
 	for (i=0;i<n_models;i++) {
 		int n_textures;
 
@@ -1740,7 +1747,8 @@ void bm_read_robot(d_level_shared_robot_info_state &LevelSharedRobotInfoState, i
 		if (i==0)
 			current_robot_info.model_num = model_num;
 		else
-			Polygon_models.front().simpler_model = build_polygon_simpler_model_index_from_polygon_model_index(model_num);
+			Polygon_models[previous_model_num].simpler_model = build_polygon_simpler_model_index_from_polygon_model_index(model_num);
+		previous_model_num = model_num;
 	}
 
 #if DXX_BUILD_DESCENT == 1
@@ -2121,6 +2129,7 @@ void bm_read_player_ship(void)
 	Assert(last_multi_bitmap_num-First_multi_bitmap_num == (MAX_PLAYERS-1)*2);
 
 	auto &Polygon_models = LevelSharedPolygonModelState.Polygon_models;
+	auto previous_model_num = polygon_model_index::None;
 	for (i=0;i<n_models;i++) {
 		int n_textures;
 
@@ -2130,7 +2139,8 @@ void bm_read_player_ship(void)
 		if (i==0)
 			Player_ship->model_num.dsx = model_num;
 		else
-			Polygon_models.front().simpler_model = build_polygon_simpler_model_index_from_polygon_model_index(model_num);
+			Polygon_models[previous_model_num].simpler_model = build_polygon_simpler_model_index_from_polygon_model_index(model_num);
+		previous_model_num = model_num;
 	}
 
 	if ( model_name_dying ) {
@@ -2527,6 +2537,7 @@ void bm_read_weapon(int skip, int unused_flag)
 	first_bitmap_num[n_models] = N_ObjBitmapPtrs;
 
 	auto &Polygon_models = LevelSharedPolygonModelState.Polygon_models;
+	auto previous_model_num = polygon_model_index::None;
 	for (i=0;i<n_models;i++) {
 		int n_textures;
 
@@ -2539,7 +2550,8 @@ void bm_read_weapon(int skip, int unused_flag)
 			wi.model_num = model_num;
 		}
 		else
-			Polygon_models.front().simpler_model = build_polygon_simpler_model_index_from_polygon_model_index(model_num);
+			Polygon_models[previous_model_num].simpler_model = build_polygon_simpler_model_index_from_polygon_model_index(model_num);
+		previous_model_num = model_num;
 	}
 
 	if ( pof_file_inner )	{
