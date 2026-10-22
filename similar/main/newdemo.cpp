@@ -23,6 +23,7 @@ COPYRIGHT 1993-1999 PARALLAX SOFTWARE CORPORATION.  ALL RIGHTS RESERVED.
  *
  */
 
+#include <concepts>
 #include <cstdlib>
 #include <ctime>
 #include <limits>
@@ -375,6 +376,11 @@ static int newdemo_write(const std::integral auto *buffer, int elsize, int nelem
 */
 
 static void nd_write_byte(const int8_t b)
+{
+	newdemo_write(&b, 1, 1);
+}
+
+static void nd_write_byte(const std::same_as<uint8_t> auto b)
 {
 	newdemo_write(&b, 1, 1);
 }
