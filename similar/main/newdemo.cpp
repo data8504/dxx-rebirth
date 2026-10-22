@@ -224,7 +224,7 @@ static fix nd_record_v_player_afterburner = -1;
 #endif
 static int nd_record_v_player_energy = -1;
 static int nd_record_v_player_shields = -1;
-static uint nd_record_v_player_flags = -1;
+static uint nd_record_v_player_flags = ~0u;
 static int nd_record_v_weapon_type = -1;
 static int nd_record_v_weapon_num = -1;
 static fix nd_record_v_homing_distance = -1;
@@ -447,7 +447,7 @@ static void nd_write_shortpos(const object_base &obj)
 		range_for (auto &i, sp.bytemat)
 		{
 			nd_write_byte(i);
-			mask |= i;
+			mask |= static_cast<uint8_t>(i);
 		}
 		if (!mask)
 		{
@@ -495,7 +495,7 @@ static void nd_read_segnum16(segnum_t &s)
 
 static void nd_read_objnum16(objnum_t &o)
 {
-	short s;
+	uint16_t s;
 	nd_read_short(&s);
 	o = s;
 }
@@ -904,7 +904,6 @@ static void nd_write_object(const vcobjptridx_t objp)
 	auto &obj = *objp;
 	auto &Robot_info = LevelSharedRobotInfoState.Robot_info;
 	int life;
-	short shortsig{0};
 
 #if DXX_BUILD_DESCENT == 2
 	if (obj.type == object_type::OBJ_ROBOT && get_robot_id(obj) == robot_id::special_reactor)
@@ -922,7 +921,7 @@ static void nd_write_object(const vcobjptridx_t objp)
 
 	nd_write_byte(obj.id);
 	nd_write_byte(obj.flags);
-	shortsig = nd_get_object_signature(objp);
+	const auto shortsig = nd_get_object_signature(objp);
 	nd_write_short(shortsig);
 	nd_write_shortpos(obj);
 
@@ -1953,7 +1952,7 @@ static int newdemo_read_demo_start(const purpose_type purpose)
 
 	for (const uint8_t i : xrange(MAX_PRIMARY_WEAPONS))
 	{
-		short s;
+		uint16_t s;
 		nd_read_short(&s);
 		if (primary_weapon_index{i} == primary_weapon_index::vulcan)
 			player_info.vulcan_ammo = s;
@@ -3600,7 +3599,7 @@ window_event_result newdemo_goto_end(int to_rewrite)
 	}
 	for (const uint8_t i : xrange(MAX_PRIMARY_WEAPONS))
 	{
-		short s;
+		uint16_t s;
 		nd_read_short(&s);
 		if (primary_weapon_index{i} == primary_weapon_index::vulcan)
 			player_info.vulcan_ammo = s;
