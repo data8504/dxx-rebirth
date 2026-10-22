@@ -23,6 +23,9 @@ COPYRIGHT 1993-1999 PARALLAX SOFTWARE CORPORATION.  ALL RIGHTS RESERVED.
  *
  */
 
+#include <algorithm>
+#include <array>
+#include <bit>
 #include <concepts>
 #include <cstdlib>
 #include <ctime>
@@ -211,7 +214,7 @@ int nd_playback_v_juststarted{0};
 #define REC_DELAY F1_0/20
 static int nd_record_v_start_frame = -1;
 static int nd_record_v_frame_number = -1;
-static short nd_record_v_framebytes_written = 0;
+static uint16_t nd_record_v_framebytes_written = 0;
 static int nd_record_v_recordframe = 1;
 static fix64 nd_record_v_recordframe_last_time = 0;
 static sbyte nd_record_v_no_space;
@@ -343,66 +346,55 @@ icobjptridx_t newdemo_find_object(object_signature_t signature)
 
 namespace {
 
-static int _newdemo_write(const void *buffer, int elsize, int nelem )
+static int _newdemo_write(const void *buffer, const std::size_t elsize, const std::size_t nelem)
 {
-	int num_written, total_size;
-
 	if (unlikely(nd_record_v_no_space))
 		return -1;
 
-	total_size = elsize * nelem;
-	nd_record_v_framebytes_written += total_size;
-	Newdemo_num_written += total_size;
-	Assert(outfile);
-	num_written = (PHYSFS_writeBytes)(outfile, buffer, elsize * nelem);
-
-	if (likely(num_written == total_size))
-		return num_written;
-
-	nd_record_v_no_space=2;
+	if (elsize && nelem <= std::numeric_limits<std::size_t>::max() / elsize)
+	{
+		const auto total_size = elsize * nelem;
+		if (std::cmp_less_equal(total_size, std::numeric_limits<int>::max() - Newdemo_num_written))
+		{
+			nd_record_v_framebytes_written = static_cast<uint16_t>(nd_record_v_framebytes_written + total_size);
+			Newdemo_num_written += static_cast<int>(total_size);
+			Assert(outfile);
+			if (likely(std::cmp_equal((PHYSFS_writeBytes)(outfile, buffer, total_size), total_size)))
+				return static_cast<int>(total_size);
+		}
+	}
+	nd_record_v_no_space = 2;
 	newdemo_stop_recording();
 	return -1;
 }
 
-static int newdemo_write(const std::integral auto *buffer, int elsize, int nelem)
+static int newdemo_write(const std::integral auto *buffer, const std::size_t elsize, const std::size_t nelem)
 {
 	return _newdemo_write(buffer, elsize, nelem);
 }
 
-/*
- *  The next bunch of files taken from Matt's gamesave.c.  We have to modify
- *  these since the demo must save more information about objects that
- *  just a gamesave
-*/
-
-static void nd_write_byte(const int8_t b)
+// The field name fixes the wire width.  Conversion here preserves the low
+// bits, including negative sentinels; recording retains the host byte order.
+template <std::unsigned_integral Wire>
+static void demo_write_values(const auto ...values)
 {
-	newdemo_write(&b, 1, 1);
+	const std::array<Wire, sizeof...(values)> fields{{static_cast<Wire>(values)...}};
+	newdemo_write(fields.data(), sizeof(Wire), fields.size());
 }
 
-static void nd_write_byte(const std::same_as<uint8_t> auto b)
+static void nd_write_byte(const auto ...values)
 {
-	newdemo_write(&b, 1, 1);
+	demo_write_values<uint8_t>(values...);
 }
 
-static void nd_write_short(short s)
+static void nd_write_short(const auto ...values)
 {
-	newdemo_write(&s, 2, 1);
+	demo_write_values<uint16_t>(values...);
 }
 
-static void nd_write_short(const std::same_as<uint16_t> auto s)
+static void nd_write_int(const auto ...values)
 {
-	newdemo_write(&s, 2, 1);
-}
-
-static void nd_write_int(int i)
-{
-	newdemo_write(&i, 4, 1);
-}
-
-static void nd_write_int(const std::same_as<uint32_t> auto i)
-{
-	newdemo_write(&i, 4, 1);
+	demo_write_values<uint32_t>(values...);
 }
 
 static void nd_write_string(const char *str)
@@ -464,108 +456,84 @@ static void nd_write_shortpos(const object_base &obj)
 	nd_write_short(sp.velz);
 }
 
-static void nd_read_byte(int8_t *const b)
+template <std::unsigned_integral Wire, typename T = Wire>
+static T demo_read_value()
 {
-	newdemo_read(b, 1, 1);
+	Wire value{};
+	newdemo_read(&value, sizeof(Wire), 1);
+	if constexpr (sizeof(Wire) > 1)
+		if (swap_endian)
+			value = std::byteswap(value);
+	return static_cast<T>(value);
 }
 
-static void nd_read_byte(uint8_t *const b)
+template <typename T = int8_t>
+static T nd_read_byte()
 {
-	nd_read_byte(reinterpret_cast<int8_t *>(b));
+	return demo_read_value<uint8_t, T>();
 }
 
-static void nd_read_short(int16_t *const s)
+template <typename T = int16_t>
+static T nd_read_short()
 {
-	newdemo_read(s, 2, 1);
-	if (swap_endian)
-		*s = SWAPSHORT(*s);
+	return demo_read_value<uint16_t, T>();
 }
 
-static void nd_read_short(uint16_t *const s)
+template <typename T = int32_t>
+static T nd_read_int()
 {
-	nd_read_short(reinterpret_cast<int16_t *>(s));
+	return demo_read_value<uint32_t, T>();
 }
 
-static void nd_read_segnum16(segnum_t &s)
+static void nd_read_byte(std::integral auto *value)
 {
-	uint16_t i;
-	nd_read_short(&i);
-	s = segnum_t{i};
+	*value = nd_read_byte<std::remove_reference_t<decltype(*value)>>();
 }
 
-static void nd_read_objnum16(objnum_t &o)
+static void nd_read_short(std::integral auto *value)
 {
-	uint16_t s;
-	nd_read_short(&s);
-	o = s;
+	*value = nd_read_short<std::remove_reference_t<decltype(*value)>>();
 }
 
-static void nd_read_int(int *i)
+static void nd_read_int(std::integral auto *value)
 {
-	newdemo_read(i, 4, 1);
-	if (swap_endian)
-		*i = SWAPINT(*i);
+	*value = nd_read_int<std::remove_reference_t<decltype(*value)>>();
 }
 
-#if DXX_BUILD_DESCENT == 2
-static void nd_read_int(unsigned *i)
-{
-	newdemo_read(i, 4, 1);
-	if (swap_endian)
-		*i = SWAPINT(*i);
-}
-#endif
-
-static void nd_read_segnum32(segnum_t &s)
-{
-	int32_t i;
-	nd_read_int(&i);
-	s = segnum_t{static_cast<uint16_t>(i)};
-}
-
-static void nd_read_objnum32(objnum_t &o)
-{
-	int i;
-	nd_read_int(&i);
-	o = i;
-}
+static void nd_read_segnum16(segnum_t &s) { s = nd_read_short<segnum_t>(); }
+static void nd_read_objnum16(objnum_t &o) { o = nd_read_short<objnum_t>(); }
+static void nd_read_segnum32(segnum_t &s) { s = nd_read_int<segnum_t>(); }
+static void nd_read_objnum32(objnum_t &o) { o = nd_read_int<objnum_t>(); }
 
 static void nd_read_string(const std::span<char> str)
 {
-	sbyte len;
-
-	nd_read_byte(&len);
-	if (static_cast<unsigned>(len) > str.size())
+	const auto length = nd_read_byte<uint8_t>();
+	if (length > INT8_MAX || length > str.size())
 		throw std::runtime_error("demo string too long");
-	newdemo_read(str.data(), len, 1);
+	newdemo_read(str.data(), length, 1);
 }
 
-static void nd_read_fix(fix *f)
-{
-	newdemo_read(f, sizeof(fix), 1);
-	if (swap_endian)
-		*f = SWAPINT(*f);
-}
-
-static void nd_read_fixang(fixang *f)
-{
-	newdemo_read(f, sizeof(fixang), 1);
-	if (swap_endian)
-		*f = SWAPSHORT(*f);
-}
+static void nd_read_fix(fix *value) { nd_read_int(value); }
 
 static void nd_read_vector(vms_vector &v)
 {
-	nd_read_fix(&v.x);
-	nd_read_fix(&v.y);
-	nd_read_fix(&v.z);
+	nd_read_int(&v.x);
+	nd_read_int(&v.y);
+	nd_read_int(&v.z);
+}
+
+static vms_vector nd_read_vector()
+{
+	vms_vector v;
+	nd_read_vector(v);
+	return v;
 }
 
 static void nd_read_angvec(vms_angvec &v)
 {
-	nd_read_fixang(&v.p);
-	nd_read_fixang(&v.b);
-	nd_read_fixang(&v.h);
+	nd_read_short(&v.p);
+	nd_read_short(&v.b);
+	nd_read_short(&v.h);
 }
 
 static void nd_read_shortpos(object_base &obj)
@@ -614,7 +582,6 @@ static void nd_read_object(const vmobjptridx_t obj)
 	auto &Objects = LevelUniqueObjectState.Objects;
 	auto &vmobjptr = Objects.vmptr;
 	auto &Robot_info = LevelSharedRobotInfoState.Robot_info;
-	short shortsig{0};
 	const auto &pl_info = get_local_plrobj().ctype.player_info;
 	const auto saved = (&pl_info == &obj->ctype.player_info)
 		? std::pair<fix, player_info>(obj->shields, pl_info)
@@ -631,8 +598,7 @@ static void nd_read_object(const vmobjptridx_t obj)
 	 * blow by all other object information
 	 */
 	{
-		uint8_t rtype;
-		nd_read_byte(&rtype);
+		auto rtype = nd_read_byte<uint8_t>();
 		if (valid_render_type(rtype))
 			obj->render_type = render_type{rtype};
 		else
@@ -641,19 +607,13 @@ static void nd_read_object(const vmobjptridx_t obj)
 			obj->render_type = render_type::RT_NONE;
 		}
 	}
-	{
-		uint8_t t;
-		nd_read_byte(&t);
-		obj->type = build_valid_object_type_from_untrusted({t});
-	}
+	obj->type = build_valid_object_type_from_untrusted({nd_read_byte<uint8_t>()});
 	if (obj->render_type == render_type::RT_NONE && obj->type != object_type::OBJ_CAMERA)
 		return;
 
 	nd_read_byte(&obj->id);
 	nd_read_byte(&obj->flags);
-	nd_read_short(&shortsig);
-	// It's OKAY! We made sure, obj->signature is never has a value which short cannot handle!!! We cannot do this otherwise, without breaking the demo format!
-	obj->signature = object_signature_t{static_cast<uint16_t>(shortsig)};
+	obj->signature = object_signature_t{nd_read_short<uint16_t>()};
 	nd_read_shortpos(obj);
 
 #if DXX_BUILD_DESCENT == 2
@@ -690,11 +650,7 @@ static void nd_read_object(const vmobjptridx_t obj)
 
 	case object_type::OBJ_POWERUP:
 		obj->control_source = object::control_type::powerup;
-		{
-			uint8_t movement_type;
-			nd_read_byte(&movement_type);        // might have physics movement
-			obj->movement_source = typename object::movement_type{movement_type};
-		}
+		obj->movement_source = nd_read_byte<object::movement_type>();
 		obj->size = Powerup_info[get_powerup_id(obj)].size;
 		break;
 
@@ -718,48 +674,26 @@ static void nd_read_object(const vmobjptridx_t obj)
 		break;
 
 	default:
-		{
-			uint8_t control_type;
-			nd_read_byte(&control_type);
-			obj->control_source = typename object::control_type{control_type};
-		}
-		{
-			uint8_t movement_type;
-			nd_read_byte(&movement_type);
-			obj->movement_source = typename object::movement_type{movement_type};
-		}
+		obj->control_source = nd_read_byte<object::control_type>();
+		obj->movement_source = nd_read_byte<object::movement_type>();
 		nd_read_fix(&(obj->size));
 		break;
 	}
 
 
-	{
-		vms_vector last_pos;
-		nd_read_vector(last_pos);
-	}
+	nd_read_vector(); // Position has already been reconstructed from shortpos.
 	if (obj->type == object_type::OBJ_WEAPON && obj->render_type == render_type::RT_WEAPON_VCLIP)
 		nd_read_fix(&(obj->lifeleft));
 	else {
-		sbyte b;
-
-		// MWA old way -- won't work with big endian machines       nd_read_byte((uint8_t *)&(obj->lifeleft));
-		nd_read_byte(&b);
-		obj->lifeleft = static_cast<fix>(b);
+		obj->lifeleft = nd_read_byte<int8_t>();
 		if (obj->lifeleft == -1)
 			obj->lifeleft = IMMORTAL_TIME;
 		else
 			obj->lifeleft = obj->lifeleft << 12;
 	}
 
-	if ((obj->type == object_type::OBJ_ROBOT) && !shareware) {
-		if (Robot_info[get_robot_id(obj)].boss_flag != boss_robot_id::None)
-		{
-			sbyte cloaked;
-
-			nd_read_byte(&cloaked);
-			obj->ctype.ai_info.CLOAKED = cloaked;
-		}
-	}
+	if (obj->type == object_type::OBJ_ROBOT && !shareware && Robot_info[get_robot_id(obj)].boss_flag != boss_robot_id::None)
+		obj->ctype.ai_info.CLOAKED = nd_read_byte<int8_t>();
 
 	switch (obj->movement_source) {
 
@@ -837,18 +771,11 @@ static void nd_read_object(const vmobjptridx_t obj)
 		int tmo;
 
 		if ((obj->type != object_type::OBJ_ROBOT) && (obj->type != object_type::OBJ_PLAYER) && (obj->type != object_type::OBJ_CLUTTER)) {
-			int i;
-			nd_read_int(&i);
-			obj->rtype.pobj_info.model_num.dsx = static_cast<polygon_model_index>(i);
-			nd_read_int(&i);
-			obj->rtype.pobj_info.subobj_flags = i;
+			obj->rtype.pobj_info.model_num.dsx = nd_read_int<polygon_model_index>();
+			obj->rtype.pobj_info.subobj_flags = nd_read_int<uint16_t>();
 		}
 
 		if ((obj->type != object_type::OBJ_PLAYER) && (obj->type != object_type::OBJ_DEBRIS))
-#if 0
-			range_for (auto &i, obj->pobj_info.anim_angles)
-				nd_read_angvec(&(i));
-#endif
 		range_for (auto &i, partial_range(obj->rtype.pobj_info.anim_angles, Polygon_models[obj->rtype.pobj_info.model_num.dsx].n_models))
 			nd_read_angvec(i);
 
@@ -878,11 +805,7 @@ static void nd_read_object(const vmobjptridx_t obj)
 		case render_type::RT_WEAPON_VCLIP:
 		case render_type::RT_FIREBALL:
 		case render_type::RT_HOSTAGE:
-		{
-			int vclip_num;
-			nd_read_int(&vclip_num);
-			obj->rtype.vclip_info.vclip_num = static_cast<vclip_index>(vclip_num);
-		}
+		obj->rtype.vclip_info.vclip_num = nd_read_int<vclip_index>();
 		nd_read_fix(&(obj->rtype.vclip_info.frametime));
 		nd_read_byte(&obj->rtype.vclip_info.framenum);
 		break;
@@ -1836,8 +1759,7 @@ static int newdemo_read_demo_start(const purpose_type purpose)
 #endif
 	nd_read_fix(&nd_GameTime32); // NOTE: Demos write GameTime in fix.
 	GameTime64 = nd_GameTime32;
-	int recorded_demo_game_mode;
-	nd_read_int(&recorded_demo_game_mode);
+	auto recorded_demo_game_mode = nd_read_int<int32_t>();
 	Newdemo_game_mode = static_cast<game_mode_flags>(recorded_demo_game_mode);
 #if DXX_BUILD_DESCENT == 2
 	if (purpose == purpose_type::rewrite)
@@ -1885,11 +1807,7 @@ static int newdemo_read_demo_start(const purpose_type purpose)
 
 			if (purpose != purpose_type::rewrite)
 				multi_new_game();
-			nd_read_byte(&c);
-			N_players = static_cast<int>(c);
-			// changed this to above two lines -- breaks on the mac because of
-			// endian issues
-			//		nd_read_byte(&N_players);
+			N_players = static_cast<unsigned>(nd_read_byte<int8_t>());
 			if (purpose == purpose_type::rewrite)
 				nd_write_byte(N_players);
 			range_for (auto &i, partial_range(Players, N_players)) {
@@ -1899,11 +1817,7 @@ static int newdemo_read_demo_start(const purpose_type purpose)
 				DXX_MAKE_VAR_UNDEFINED(player_info.cloak_time);
 				DXX_MAKE_VAR_UNDEFINED(player_info.invulnerable_time);
 				nd_read_string(i.callsign.buffer());
-				{
-					uint8_t connected;
-					nd_read_byte(&connected);
-					i.connected = player_connection_status{connected};
-				}
+				i.connected = nd_read_byte<player_connection_status>();
 				if (purpose == purpose_type::rewrite)
 				{
 					nd_write_string(static_cast<const char *>(i.callsign));
@@ -1951,8 +1865,7 @@ static int newdemo_read_demo_start(const purpose_type purpose)
 
 	for (const uint8_t i : xrange(MAX_PRIMARY_WEAPONS))
 	{
-		uint16_t s;
-		nd_read_short(&s);
+		auto s = nd_read_short<uint16_t>();
 		if (primary_weapon_index{i} == primary_weapon_index::vulcan)
 			player_info.vulcan_ammo = s;
 		if (purpose == purpose_type::rewrite)
@@ -1961,16 +1874,12 @@ static int newdemo_read_demo_start(const purpose_type purpose)
 
 	range_for (auto &i, player_info.secondary_ammo)
 	{
-		uint16_t u;
-		nd_read_short(&u);
-		i = u;
+		i = nd_read_short<uint8_t>();
 		if (purpose == purpose_type::rewrite)
 			nd_write_short(i);
 	}
 
-	uint8_t i;
-	nd_read_byte(&i);
-	const enum laser_level laser_level{i};
+	const auto laser_level = nd_read_byte<enum laser_level>();
 	if (purpose != purpose_type::rewrite && laser_level != player_info.laser_level)
 	{
 		player_info.laser_level = laser_level;
@@ -2021,8 +1930,7 @@ static int newdemo_read_demo_start(const purpose_type purpose)
 		nd_write_byte(shield);
 	}
 
-	int recorded_player_flags;
-	nd_read_int(&recorded_player_flags);
+	auto recorded_player_flags = nd_read_int<int32_t>();
 	player_info.powerup_flags = player_flags(recorded_player_flags);
 	if (purpose == purpose_type::rewrite)
 		nd_write_int(recorded_player_flags);
@@ -2033,17 +1941,9 @@ static int newdemo_read_demo_start(const purpose_type purpose)
 		player_info.invulnerable_time = GameTime64 - (INVULNERABLE_TIME_MAX / 2);
 
 	auto &Primary_weapon = player_info.Primary_weapon;
-	{
-		int8_t v;
-		nd_read_byte(&v);
-		Primary_weapon = static_cast<primary_weapon_index>(v);
-	}
+	Primary_weapon = static_cast<primary_weapon_index>(nd_read_byte<int8_t>());
 	auto &Secondary_weapon = player_info.Secondary_weapon;
-	{
-		int8_t v;
-		nd_read_byte(&v);
-		Secondary_weapon = static_cast<secondary_weapon_index>(v);
-	}
+	Secondary_weapon = static_cast<secondary_weapon_index>(nd_read_byte<int8_t>());
 	if (purpose == purpose_type::rewrite)
 	{
 		nd_write_byte(underlying_value(Primary_weapon.get_active()));
@@ -3494,7 +3394,7 @@ window_event_result newdemo_goto_end(int to_rewrite)
 	auto &Objects = LevelUniqueObjectState.Objects;
 	auto &vmobjptr = Objects.vmptr;
 	short frame_length{0}, byte_count=0, bshort=0;
-	sbyte level{0}, bbyte=0, c=0, cloaked=0;
+	sbyte level{0}, bbyte=0, cloaked=0;
 	ubyte energy{0}, shield=0;
 	int loc{0}, bint=0;
 
@@ -3578,56 +3478,32 @@ window_event_result newdemo_goto_end(int to_rewrite)
 	auto &player_info = get_local_plrobj().ctype.player_info;
 	player_info.energy = i2f(energy);
 	get_local_plrobj().shields = i2f(shield);
-	int recorded_player_flags;
-	nd_read_int(&recorded_player_flags);
+	auto recorded_player_flags = nd_read_int<int32_t>();
 	player_info.powerup_flags = player_flags(recorded_player_flags);
 	if (+(player_info.powerup_flags & player_flag::cloaked)) {
 		player_info.cloak_time = GameTime64 - (CLOAK_TIME_MAX / 2);
 	}
 	if (+(player_info.powerup_flags & player_flag::invulnerable))
 		player_info.invulnerable_time = GameTime64 - (INVULNERABLE_TIME_MAX / 2);
-	{
-		int8_t v;
-		nd_read_byte(&v);
-		player_info.Primary_weapon = static_cast<primary_weapon_index>(v);
-	}
-	{
-		int8_t v;
-		nd_read_byte(&v);
-		player_info.Secondary_weapon = static_cast<secondary_weapon_index>(v);
-	}
+	player_info.Primary_weapon = static_cast<primary_weapon_index>(nd_read_byte<int8_t>());
+	player_info.Secondary_weapon = static_cast<secondary_weapon_index>(nd_read_byte<int8_t>());
 	for (const uint8_t i : xrange(MAX_PRIMARY_WEAPONS))
 	{
-		uint16_t s;
-		nd_read_short(&s);
+		auto s = nd_read_short<uint16_t>();
 		if (primary_weapon_index{i} == primary_weapon_index::vulcan)
 			player_info.vulcan_ammo = s;
 	}
 	range_for (auto &i, player_info.secondary_ammo)
 	{
-		uint16_t u;
-		nd_read_short(&u);
-		i = u;
+		i = nd_read_short<uint8_t>();
 	}
-	{
-		uint8_t i;
-	nd_read_byte(&i);
-		player_info.laser_level = laser_level{i};
-	}
+	player_info.laser_level = nd_read_byte<laser_level>();
 
 	if (+(Newdemo_game_mode & GM_MULTI)) {
-		nd_read_byte(&c);
-		N_players = static_cast<int>(c);
-		// see newdemo_read_start_demo for explanation of
-		// why this is commented out
-		//		nd_read_byte(&N_players);
+		N_players = static_cast<unsigned>(nd_read_byte<int8_t>());
 		range_for (auto &i, partial_range(Players, N_players)) {
 			nd_read_string(i.callsign.buffer());
-			{
-				uint8_t connected;
-				nd_read_byte(&connected);
-				i.connected = player_connection_status{connected};
-			}
+			i.connected = nd_read_byte<player_connection_status>();
 			auto &pl_info = vmobjptr(i.objnum)->ctype.player_info;
 			if (+(Newdemo_game_mode & GM_MULTI_COOP)) {
 				nd_read_int(&pl_info.mission.score);
