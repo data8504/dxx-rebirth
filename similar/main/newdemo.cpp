@@ -356,7 +356,7 @@ static int _newdemo_write(const void *buffer, int elsize, int nelem )
 	Assert(outfile);
 	num_written = (PHYSFS_writeBytes)(outfile, buffer, elsize * nelem);
 
-	if (likely(num_written == nelem))
+	if (likely(num_written == total_size))
 		return num_written;
 
 	nd_record_v_no_space=2;
