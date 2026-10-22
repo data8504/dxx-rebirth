@@ -447,13 +447,7 @@ static void nd_write_shortpos(const object_base &obj)
 		}
 	}
 
-	nd_write_short(sp.xo);
-	nd_write_short(sp.yo);
-	nd_write_short(sp.zo);
-	nd_write_short(sp.segment);
-	nd_write_short(sp.velx);
-	nd_write_short(sp.vely);
-	nd_write_short(sp.velz);
+	nd_write_short(sp.xo, sp.yo, sp.zo, sp.segment, sp.velx, sp.vely, sp.velz);
 }
 
 template <std::unsigned_integral Wire, typename T = Wire>
@@ -534,6 +528,45 @@ static void nd_read_angvec(vms_angvec &v)
 	nd_read_short(&v.p);
 	nd_read_short(&v.b);
 	nd_read_short(&v.h);
+}
+
+// Event payloads use their declared scalar widths.  Segment identifiers here
+// are 16-bit; legacy 32-bit segment fields remain explicit at their call sites.
+static void nd_read_value(std::integral auto &value)
+{
+	if constexpr (sizeof(value) == 1) nd_read_byte(&value);
+	else if constexpr (sizeof(value) == 2) nd_read_short(&value);
+	else if constexpr (sizeof(value) == 4) nd_read_int(&value);
+	else static_assert(sizeof(value) <= 4);
+}
+
+static void nd_write_value(const std::integral auto value)
+{
+	if constexpr (sizeof(value) == 1) nd_write_byte(value);
+	else if constexpr (sizeof(value) == 2) nd_write_short(value);
+	else if constexpr (sizeof(value) == 4) nd_write_int(value);
+	else static_assert(sizeof(value) <= 4);
+}
+
+static void nd_read_value(segnum_t &value) { nd_read_segnum16(value); }
+static void nd_write_value(segnum_t value) { nd_write_short(value); }
+static void nd_read_value(vms_vector &value) { nd_read_vector(value); }
+static void nd_write_value(const vms_vector &value) { nd_write_vector(value); }
+
+template <std::size_t N>
+static void nd_read_value(char (&value)[N]) { nd_read_string(value); }
+template <std::size_t N>
+static void nd_write_value(const char (&value)[N]) { nd_write_string(value); }
+
+// Rewriting echoes a fully read payload; incomplete fields never reach output.
+static bool nd_read_fields(const bool rewrite, auto &...fields)
+{
+	(nd_read_value(fields), ...);
+	if (nd_playback_v_bad_read)
+		return false;
+	if (rewrite)
+		(nd_write_value(fields), ...);
+	return true;
 }
 
 static void nd_read_shortpos(object_base &obj)
@@ -837,20 +870,17 @@ static void nd_write_object(const vcobjptridx_t objp)
 	 * Do render_type first so on read, we can make determination of
 	 * what else to read in
 	 */
-	nd_write_byte(underlying_value(obj.render_type));
-	nd_write_byte(obj.type);
+	nd_write_byte(underlying_value(obj.render_type), obj.type);
 	if (obj.render_type == render_type::RT_NONE && obj.type != object_type::OBJ_CAMERA)
 		return;
 
-	nd_write_byte(obj.id);
-	nd_write_byte(obj.flags);
+	nd_write_byte(obj.id, obj.flags);
 	nd_write_short(nd_get_object_signature(objp));
 	nd_write_shortpos(obj);
 
 	if (obj.type != object_type::OBJ_HOSTAGE && obj.type != object_type::OBJ_ROBOT && obj.type != object_type::OBJ_PLAYER && obj.type != object_type::OBJ_POWERUP && obj.type != object_type::OBJ_CLUTTER)
 	{
-		nd_write_byte(static_cast<uint8_t>(obj.control_source));
-		nd_write_byte(static_cast<uint8_t>(obj.movement_source));
+		nd_write_byte(static_cast<uint8_t>(obj.control_source), static_cast<uint8_t>(obj.movement_source));
 		nd_write_fix(obj.size);
 	}
 	if (obj.type == object_type::OBJ_POWERUP)
@@ -943,8 +973,7 @@ static void nd_write_object(const vcobjptridx_t objp)
 		case render_type::RT_MORPH:
 		case render_type::RT_POLYOBJ: {
 		if ((obj.type != object_type::OBJ_ROBOT) && (obj.type != object_type::OBJ_PLAYER) && (obj.type != object_type::OBJ_CLUTTER)) {
-			nd_write_int(underlying_value(obj.rtype.pobj_info.model_num.dsx));
-			nd_write_int(obj.rtype.pobj_info.subobj_flags);
+			nd_write_int(underlying_value(obj.rtype.pobj_info.model_num.dsx), obj.rtype.pobj_info.subobj_flags);
 		}
 
 		if ((obj.type != object_type::OBJ_PLAYER) && (obj.type != object_type::OBJ_DEBRIS))
@@ -1036,6 +1065,18 @@ static void nd_rbe()
 	newdemo_write(buf, 1, sizeof(buf));
 }
 
+// These adapters state the legacy wire width and preserve its low bits.
+static uint8_t demo_byte(const auto value) { return static_cast<uint8_t>(value); }
+static uint16_t demo_short(const auto value) { return static_cast<uint16_t>(value); }
+static uint32_t demo_int(const auto value) { return static_cast<uint32_t>(value); }
+
+static void nd_record_event(const uint8_t event, const auto &...fields)
+{
+	pause_game_world_time pause;
+	nd_write_byte(event);
+	(nd_write_value(fields), ...);
+}
+
 namespace dsx {
 void newdemo_record_start_demo()
 {
@@ -1046,9 +1087,7 @@ void newdemo_record_start_demo()
 	nd_record_v_recordframe_last_time=GameTime64-REC_DELAY; // make sure first frame is recorded!
 
 	pause_game_world_time p;
-	nd_write_byte(ND_EVENT_START_DEMO);
-	nd_write_byte(DEMO_VERSION);
-	nd_write_byte(DEMO_GAME_TYPE);
+	nd_write_byte(ND_EVENT_START_DEMO, DEMO_VERSION, DEMO_GAME_TYPE);
 	nd_write_fix(0); // NOTE: This is supposed to write GameTime (in fix). Since our GameTime64 is fix64 and the demos do not NEED this time actually, just write 0.
 
 	nd_write_int(+(Game_mode & GM_MULTI) ? (underlying_value(Game_mode) | (Player_num << 16)) : underlying_value(Game_mode));
@@ -1069,8 +1108,7 @@ void newdemo_record_start_demo()
 			if (+(Game_mode & GM_MULTI_COOP)) {
 				nd_write_int(pl_info.mission.score);
 			} else {
-				nd_write_short(pl_info.net_killed_total);
-				nd_write_short(pl_info.net_kills_total);
+				nd_write_short(pl_info.net_killed_total, pl_info.net_kills_total);
 			}
 		}
 	} else
@@ -1098,8 +1136,8 @@ void newdemo_record_start_demo()
 	nd_write_byte(nd_record_v_player_energy = static_cast<int8_t>(f2ir(player_info.energy)));
 	nd_write_byte(nd_record_v_player_shields = static_cast<int8_t>(f2ir(get_local_plrobj().shields)));
 	nd_write_int(nd_record_v_player_flags = +player_info.powerup_flags);        // be sure players flags are set
-	nd_write_byte(static_cast<int8_t>(static_cast<primary_weapon_index>(player_info.Primary_weapon)));
-	nd_write_byte(static_cast<int8_t>(static_cast<secondary_weapon_index>(player_info.Secondary_weapon)));
+	nd_write_byte(static_cast<int8_t>(static_cast<primary_weapon_index>(player_info.Primary_weapon)),
+		static_cast<int8_t>(static_cast<secondary_weapon_index>(player_info.Secondary_weapon)));
 	nd_record_v_start_frame = nd_record_v_frame_number = 0;
 #if DXX_BUILD_DESCENT == 2
 	nd_record_v_player_afterburner = 0;
@@ -1207,18 +1245,12 @@ void newdemo_record_viewer_object(const vcobjptridx_t obj)
 
 void newdemo_record_sound(const sound_effect soundno)
 {
-	pause_game_world_time p;
-	nd_write_byte(ND_EVENT_SOUND);
-	nd_write_int( soundno );
+	nd_record_event(ND_EVENT_SOUND, demo_int(soundno));
 }
 
 void newdemo_record_sound_3d_once(const sound_effect soundno, const sound_pan angle, const int volume)
 {
-	pause_game_world_time p;
-	nd_write_byte( ND_EVENT_SOUND_3D_ONCE );
-	nd_write_int( soundno );
-	nd_write_int(static_cast<int>(angle));
-	nd_write_int( volume );
+	nd_record_event(ND_EVENT_SOUND_3D_ONCE, demo_int(soundno), demo_int(angle), demo_int(volume));
 }
 
 void newdemo_record_link_sound_to_object3(const sound_effect soundno, objnum_t objnum, fix max_volume, fix  max_distance, int loop_start, int loop_end)
@@ -1226,12 +1258,8 @@ void newdemo_record_link_sound_to_object3(const sound_effect soundno, objnum_t o
 	auto &Objects = LevelUniqueObjectState.Objects;
 	pause_game_world_time p;
 	nd_write_byte( ND_EVENT_LINK_SOUND_TO_OBJ );
-	nd_write_int( soundno );
-	nd_write_int(nd_get_object_signature(Objects.vcptridx(objnum)));
-	nd_write_int( max_volume );
-	nd_write_int( max_distance );
-	nd_write_int( loop_start );
-	nd_write_int( loop_end );
+	nd_write_int( soundno , nd_get_object_signature(Objects.vcptridx(objnum)),  max_volume ,  max_distance ,
+		 loop_start ,  loop_end );
 }
 
 namespace dsx {
@@ -1245,12 +1273,7 @@ void newdemo_record_kill_sound_linked_to_object(const vcobjptridx_t objp)
 
 void newdemo_record_wall_hit_process(const segnum_t segnum, const sidenum_t side, int damage, int playernum)
 {
-	pause_game_world_time p;
-	nd_write_byte( ND_EVENT_WALL_HIT_PROCESS );
-	nd_write_int( segnum );
-	nd_write_int(underlying_value(side));
-	nd_write_int( damage );
-	nd_write_int( playernum );
+	nd_record_event(ND_EVENT_WALL_HIT_PROCESS, demo_int(segnum), demo_int(side), demo_int(damage), demo_int(playernum));
 }
 
 namespace dsx {
@@ -1268,19 +1291,12 @@ void newdemo_record_guided_end ()
 
 void newdemo_record_secret_exit_blown(int truth)
 {
-	pause_game_world_time p;
-	nd_write_byte( ND_EVENT_SECRET_THINGY );
-	nd_write_int( truth );
+	nd_record_event(ND_EVENT_SECRET_THINGY, demo_int(truth));
 }
 
 void newdemo_record_trigger(const vcsegidx_t segnum, const sidenum_t side, const objnum_t objnum, const unsigned shot)
 {
-	pause_game_world_time p;
-	nd_write_byte( ND_EVENT_TRIGGER );
-	nd_write_int( segnum );
-	nd_write_int(underlying_value(side));
-	nd_write_int( objnum );
-	nd_write_int(shot);
+	nd_record_event(ND_EVENT_TRIGGER, demo_int(segnum), demo_int(side), demo_int(objnum), demo_int(shot));
 }
 #endif
 
@@ -1297,10 +1313,7 @@ void newdemo_record_morph_frame(const vcobjptridx_t obj)
 
 void newdemo_record_wall_toggle(segnum_t segnum, sidenum_t side)
 {
-	pause_game_world_time p;
-	nd_write_byte( ND_EVENT_WALL_TOGGLE );
-	nd_write_int( segnum );
-	nd_write_int(underlying_value(side));
+	nd_record_event(ND_EVENT_WALL_TOGGLE, demo_int(segnum), demo_int(side));
 }
 
 void newdemo_record_control_center_destroyed()
@@ -1308,9 +1321,7 @@ void newdemo_record_control_center_destroyed()
 	auto &LevelUniqueControlCenterState = LevelUniqueObjectState.ControlCenterState;
 	if (!nd_record_v_recordframe)
 		return;
-	pause_game_world_time p;
-	nd_write_byte( ND_EVENT_CONTROL_CENTER_DESTROYED );
-	nd_write_int(LevelUniqueControlCenterState.Countdown_seconds_left);
+	nd_record_event(ND_EVENT_CONTROL_CENTER_DESTROYED, demo_int(LevelUniqueControlCenterState.Countdown_seconds_left));
 }
 
 void newdemo_record_hud_message(const char * message )
@@ -1324,11 +1335,7 @@ void newdemo_record_palette_effect(short r, short g, short b )
 {
 	if (!nd_record_v_recordframe)
 		return;
-	pause_game_world_time p;
-	nd_write_byte( ND_EVENT_PALETTE_EFFECT );
-	nd_write_short( r );
-	nd_write_short( g );
-	nd_write_short( b );
+	nd_record_event(ND_EVENT_PALETTE_EFFECT, demo_short(r), demo_short(g), demo_short(b));
 }
 
 void newdemo_record_player_energy(int energy)
@@ -1409,11 +1416,7 @@ void newdemo_record_player_weapon(const secondary_weapon_index weapon_num)
 
 void newdemo_record_effect_blowup(segnum_t segment, sidenum_t side, const vms_vector &pnt)
 {
-	pause_game_world_time p;
-	nd_write_byte (ND_EVENT_EFFECT_BLOWUP);
-	nd_write_short(segment);
-	nd_write_byte(static_cast<int8_t>(side));
-	nd_write_vector(pnt);
+	nd_record_event(ND_EVENT_EFFECT_BLOWUP, demo_short(segment), demo_byte(side), pnt);
 }
 
 void newdemo_record_homing_distance(fix distance)
@@ -1427,81 +1430,58 @@ void newdemo_record_homing_distance(fix distance)
 
 void newdemo_record_letterbox(void)
 {
-	pause_game_world_time p;
-	nd_write_byte(ND_EVENT_LETTERBOX);
+	nd_record_event(ND_EVENT_LETTERBOX);
 }
 
 void newdemo_record_rearview(void)
 {
-	pause_game_world_time p;
-	nd_write_byte(ND_EVENT_REARVIEW);
+	nd_record_event(ND_EVENT_REARVIEW);
 }
 
 void newdemo_record_restore_cockpit(void)
 {
-	pause_game_world_time p;
-	nd_write_byte(ND_EVENT_RESTORE_COCKPIT);
+	nd_record_event(ND_EVENT_RESTORE_COCKPIT);
 }
 
 void newdemo_record_restore_rearview(void)
 {
-	pause_game_world_time p;
-	nd_write_byte(ND_EVENT_RESTORE_REARVIEW);
+	nd_record_event(ND_EVENT_RESTORE_REARVIEW);
 }
 
 namespace dsx {
 
 void newdemo_record_wall_set_tmap_num1(const vcsegidx_t seg, const sidenum_t side, const vcsegidx_t cseg, const sidenum_t cside, const texture1_value tmap)
 {
-	pause_game_world_time p;
-	nd_write_byte(ND_EVENT_WALL_SET_TMAP_NUM1);
-	nd_write_short(seg);
-	nd_write_byte(underlying_value(side));
-	nd_write_short(cseg);
-	nd_write_byte(underlying_value(cside));
-	nd_write_short(static_cast<uint16_t>(tmap));
+	nd_record_event(ND_EVENT_WALL_SET_TMAP_NUM1,
+		demo_short(seg), demo_byte(side), demo_short(cseg), demo_byte(cside), demo_short(tmap));
 }
 
 void newdemo_record_wall_set_tmap_num2(const vcsegidx_t seg, const sidenum_t side, const vcsegidx_t cseg, const sidenum_t cside, const texture2_value tmap)
 {
-	pause_game_world_time p;
-	nd_write_byte(ND_EVENT_WALL_SET_TMAP_NUM2);
-	nd_write_short(seg);
-	nd_write_byte(underlying_value(side));
-	nd_write_short(cseg);
-	nd_write_byte(underlying_value(cside));
-	nd_write_short(static_cast<uint16_t>(tmap));
+	nd_record_event(ND_EVENT_WALL_SET_TMAP_NUM2,
+		demo_short(seg), demo_byte(side), demo_short(cseg), demo_byte(cside), demo_short(tmap));
 }
 
 }
 
 void newdemo_record_multi_cloak(int pnum)
 {
-	pause_game_world_time p;
-	nd_write_byte(ND_EVENT_MULTI_CLOAK);
-	nd_write_byte(static_cast<int8_t>(pnum));
+	nd_record_event(ND_EVENT_MULTI_CLOAK, demo_byte(pnum));
 }
 
 void newdemo_record_multi_decloak(int pnum)
 {
-	pause_game_world_time p;
-	nd_write_byte(ND_EVENT_MULTI_DECLOAK);
-	nd_write_byte(static_cast<int8_t>(pnum));
+	nd_record_event(ND_EVENT_MULTI_DECLOAK, demo_byte(pnum));
 }
 
 void newdemo_record_multi_death(int pnum)
 {
-	pause_game_world_time p;
-	nd_write_byte(ND_EVENT_MULTI_DEATH);
-	nd_write_byte(static_cast<int8_t>(pnum));
+	nd_record_event(ND_EVENT_MULTI_DEATH, demo_byte(pnum));
 }
 
 void newdemo_record_multi_kill(int pnum, sbyte kill)
 {
-	pause_game_world_time p;
-	nd_write_byte(ND_EVENT_MULTI_KILL);
-	nd_write_byte(static_cast<int8_t>(pnum));
-	nd_write_byte(kill);
+	nd_record_event(ND_EVENT_MULTI_KILL, demo_byte(pnum), demo_byte(kill));
 }
 
 void newdemo_record_multi_connect(const unsigned pnum, const unsigned new_player, const char *const new_callsign)
@@ -1509,38 +1489,29 @@ void newdemo_record_multi_connect(const unsigned pnum, const unsigned new_player
 	auto &Objects = LevelUniqueObjectState.Objects;
 	auto &vcobjptr = Objects.vcptr;
 	pause_game_world_time p;
-	nd_write_byte(ND_EVENT_MULTI_CONNECT);
-	nd_write_byte(static_cast<int8_t>(pnum));
-	nd_write_byte(static_cast<int8_t>(new_player));
+	nd_write_byte(ND_EVENT_MULTI_CONNECT, static_cast<int8_t>(pnum), static_cast<int8_t>(new_player));
 	if (!new_player) {
 		auto &plr = *vcplayerptr(pnum);
 		nd_write_string(static_cast<const char *>(plr.callsign));
 		auto &player_info = vcobjptr(plr.objnum)->ctype.player_info;
-		nd_write_int(player_info.net_killed_total);
-		nd_write_int(player_info.net_kills_total);
+		nd_write_int(player_info.net_killed_total, player_info.net_kills_total);
 	}
 	nd_write_string(new_callsign);
 }
 
 void newdemo_record_multi_reconnect(int pnum)
 {
-	pause_game_world_time p;
-	nd_write_byte(ND_EVENT_MULTI_RECONNECT);
-	nd_write_byte(static_cast<int8_t>(pnum));
+	nd_record_event(ND_EVENT_MULTI_RECONNECT, demo_byte(pnum));
 }
 
 void newdemo_record_multi_disconnect(int pnum)
 {
-	pause_game_world_time p;
-	nd_write_byte(ND_EVENT_MULTI_DISCONNECT);
-	nd_write_byte(static_cast<int8_t>(pnum));
+	nd_record_event(ND_EVENT_MULTI_DISCONNECT, demo_byte(pnum));
 }
 
 void newdemo_record_player_score(int score)
 {
-	pause_game_world_time p;
-	nd_write_byte(ND_EVENT_PLAYER_SCORE);
-	nd_write_int(score);
+	nd_record_event(ND_EVENT_PLAYER_SCORE, demo_int(score));
 }
 
 void newdemo_record_multi_score(const unsigned pnum, const int score)
@@ -1548,8 +1519,7 @@ void newdemo_record_multi_score(const unsigned pnum, const int score)
 	auto &Objects = LevelUniqueObjectState.Objects;
 	auto &vcobjptr = Objects.vcptr;
 	pause_game_world_time p;
-	nd_write_byte(ND_EVENT_MULTI_SCORE);
-	nd_write_byte(static_cast<int8_t>(pnum));
+	nd_write_byte(ND_EVENT_MULTI_SCORE, static_cast<int8_t>(pnum));
 	nd_write_int(score - vcobjptr(vcplayerptr(pnum)->objnum)->ctype.player_info.mission.score);      // called before score is changed!!!!
 }
 
@@ -1575,18 +1545,12 @@ void newdemo_record_secondary_ammo(int new_ammo)
 
 void newdemo_record_door_opening(segnum_t segnum, sidenum_t side)
 {
-	pause_game_world_time p;
-	nd_write_byte(ND_EVENT_DOOR_OPENING);
-	nd_write_short(segnum);
-	nd_write_byte(underlying_value(side));
+	nd_record_event(ND_EVENT_DOOR_OPENING, demo_short(segnum), demo_byte(side));
 }
 
 void newdemo_record_laser_level(const laser_level old_level, const laser_level new_level)
 {
-	pause_game_world_time p;
-	nd_write_byte(ND_EVENT_LASER_LEVEL);
-	nd_write_byte(static_cast<uint8_t>(old_level));
-	nd_write_byte(static_cast<uint8_t>(new_level));
+	nd_record_event(ND_EVENT_LASER_LEVEL, demo_byte(old_level), demo_byte(new_level));
 }
 
 namespace dsx {
@@ -1594,26 +1558,16 @@ namespace dsx {
 #if DXX_BUILD_DESCENT == 2
 void newdemo_record_cloaking_wall(wallnum_t front_wall_num, wallnum_t back_wall_num, ubyte type, const wall_state state, fix cloak_value, fix l0, fix l1, fix l2, fix l3)
 {
-	pause_game_world_time p;
-	nd_write_byte(ND_EVENT_CLOAKING_WALL);
-	nd_write_byte(static_cast<uint8_t>(front_wall_num));
-	nd_write_byte(static_cast<uint8_t>(back_wall_num));
-	nd_write_byte(type);
-	nd_write_byte(underlying_value(state));
-	nd_write_byte(cloak_value);
-	nd_write_short(l0>>8);
-	nd_write_short(l1>>8);
-	nd_write_short(l2>>8);
-	nd_write_short(l3>>8);
+	nd_record_event(ND_EVENT_CLOAKING_WALL,
+		demo_byte(front_wall_num), demo_byte(back_wall_num), demo_byte(type), demo_byte(state),
+		demo_byte(cloak_value), demo_short(l0>>8), demo_short(l1>>8), demo_short(l2>>8), demo_short(l3>>8));
 }
 #endif
 
 void newdemo_set_new_level(int level_num)
 {
 	pause_game_world_time p;
-	nd_write_byte(ND_EVENT_NEW_LEVEL);
-	nd_write_byte(static_cast<int8_t>(level_num));
-	nd_write_byte(static_cast<int8_t>(Current_level_num));
+	nd_write_byte(ND_EVENT_NEW_LEVEL, static_cast<int8_t>(level_num), static_cast<int8_t>(Current_level_num));
 #if DXX_BUILD_DESCENT == 2
 	if (nd_record_v_juststarted==1)
 	{
@@ -1627,8 +1581,7 @@ void newdemo_set_new_level(int level_num)
 			nd_write_byte (underlying_value(w.state));
 
 			const auto &side = vcsegptr(w.segnum)->unique_segment::sides[w.sidenum];
-			nd_write_short(underlying_value(side.tmap_num));
-			nd_write_short(underlying_value(side.tmap_num2));
+			nd_write_short(underlying_value(side.tmap_num), underlying_value(side.tmap_num2));
 			nd_record_v_juststarted=0;
 		}
 	}
@@ -1708,16 +1661,12 @@ static int newdemo_read_demo_start(const purpose_type purpose)
 	auto &BossUniqueState = LevelUniqueObjectState.BossState;
 #endif
 
-	nd_read_byte(&c);
-	if (purpose == purpose_type::rewrite)
-		nd_write_byte(c);
+	nd_read_fields(purpose == purpose_type::rewrite, c);
 	if ((c != ND_EVENT_START_DEMO) || nd_playback_v_bad_read) {
 		nm_messagebox(menu_title{nullptr}, {TXT_OK}, "%s %s", TXT_CANT_PLAYBACK, TXT_DEMO_CORRUPT);
 		return 1;
 	}
-	nd_read_byte(&version);
-	if (purpose == purpose_type::rewrite)
-		nd_write_byte(version);
+	nd_read_fields(purpose == purpose_type::rewrite, version);
 #if DXX_BUILD_DESCENT == 1
 	if (version == DEMO_VERSION_SHAREWARE)
 		shareware = 1;
@@ -1729,9 +1678,7 @@ static int newdemo_read_demo_start(const purpose_type purpose)
 		return 1;
 	}
 #endif
-	nd_read_byte(&game_type);
-	if (purpose == purpose_type::rewrite)
-		nd_write_byte(game_type);
+	nd_read_fields(purpose == purpose_type::rewrite, game_type);
 #if DXX_BUILD_DESCENT == 1
 	if ((game_type == DEMO_GAME_TYPE_SHAREWARE) && shareware)
 		;	// all good
@@ -1776,9 +1723,7 @@ static int newdemo_read_demo_start(const purpose_type purpose)
 	{
 		if (+(Newdemo_game_mode & GM_TEAM))
 		{
-			nd_read_byte(&Netgame.team_vector);
-			if (purpose == purpose_type::rewrite)
-				nd_write_byte(Netgame.team_vector);
+			nd_read_fields(purpose == purpose_type::rewrite, Netgame.team_vector);
 		}
 
 		range_for (auto &i, Players)
@@ -1825,16 +1770,13 @@ static int newdemo_read_demo_start(const purpose_type purpose)
 				}
 
 				if (+(Newdemo_game_mode & GM_MULTI_COOP)) {
-					nd_read_int(&player_info.mission.score);
-					if (purpose == purpose_type::rewrite)
-						nd_write_int(player_info.mission.score);
+					nd_read_fields(purpose == purpose_type::rewrite, player_info.mission.score);
 				} else {
 					nd_read_short(&player_info.net_killed_total);
 					nd_read_short(&player_info.net_kills_total);
 					if (purpose == purpose_type::rewrite)
 					{
-						nd_write_short(player_info.net_killed_total);
-						nd_write_short(player_info.net_kills_total);
+						nd_write_short(player_info.net_killed_total, player_info.net_kills_total);
 					}
 				}
 			}
@@ -1889,9 +1831,7 @@ static int newdemo_read_demo_start(const purpose_type purpose)
 
 	// Support for missions
 
-	nd_read_string(current_mission);
-	if (purpose == purpose_type::rewrite)
-		nd_write_string(current_mission);
+	nd_read_fields(purpose == purpose_type::rewrite, current_mission);
 #if DXX_BUILD_DESCENT == 1
 	if (!shareware)
 	{
@@ -1926,8 +1866,7 @@ static int newdemo_read_demo_start(const purpose_type purpose)
 	nd_read_byte(&shield);
 	if (purpose == purpose_type::rewrite)
 	{
-		nd_write_byte(energy);
-		nd_write_byte(shield);
+		nd_write_byte(energy, shield);
 	}
 
 	auto recorded_player_flags = nd_read_int<int32_t>();
@@ -1946,8 +1885,7 @@ static int newdemo_read_demo_start(const purpose_type purpose)
 	Secondary_weapon = static_cast<secondary_weapon_index>(nd_read_byte<int8_t>());
 	if (purpose == purpose_type::rewrite)
 	{
-		nd_write_byte(underlying_value(Primary_weapon.get_active()));
-		nd_write_byte(underlying_value(Secondary_weapon.get_active()));
+		nd_write_byte(underlying_value(Primary_weapon.get_active()), underlying_value(Secondary_weapon.get_active()));
 	}
 
 // Next bit of code to fix problem that I introduced between 1.0 and 1.1
@@ -2022,6 +1960,36 @@ static void newdemo_pop_ctrlcen_triggers()
 }
 
 namespace dsx {
+class demo_event_reader
+{
+	bool rewrite;
+	int &done;
+
+public:
+	demo_event_reader(const bool rewrite, int &done) : rewrite(rewrite), done(done) {}
+
+	// Rewrite consumes the payload here; gameplay runs only during playback.
+	bool read_for_playback(auto &...fields) const
+	{
+		if (!nd_read_fields(rewrite, fields...))
+		{
+			done = -1;
+			return false;
+		}
+		return !rewrite;
+	}
+};
+
+static bool playing_forward()
+{
+	return (Newdemo_vcr_state == ND_STATE_PLAYBACK) || (Newdemo_vcr_state == ND_STATE_FASTFORWARD) || (Newdemo_vcr_state == ND_STATE_ONEFRAMEFORWARD);
+}
+
+static bool playing_backward()
+{
+	return (Newdemo_vcr_state == ND_STATE_REWINDING) || (Newdemo_vcr_state == ND_STATE_ONEFRAMEBACKWARD);
+}
+
 static int newdemo_read_frame_information(int rewrite)
 {
 	auto &LevelUniqueControlCenterState = LevelUniqueObjectState.ControlCenterState;
@@ -2033,6 +2001,7 @@ static int newdemo_read_frame_information(int rewrite)
 	sbyte c;
 
 	done = 0;
+	demo_event_reader event{rewrite != 0, done};
 
 	if (Newdemo_vcr_state != ND_STATE_PAUSED)
 		for (unique_segment &useg : vmsegptr)
@@ -2072,8 +2041,7 @@ static int newdemo_read_frame_information(int rewrite)
 			{
 				nd_write_short(last_frame_length);
 				nd_record_v_framebytes_written = 3;
-				nd_write_int(nd_playback_v_framecount);
-				nd_write_int(nd_recorded_time);
+				nd_write_int(nd_playback_v_framecount, nd_recorded_time);
 				break;
 			}
 			if (Newdemo_vcr_state == ND_STATE_PLAYBACK)
@@ -2182,51 +2150,19 @@ static int newdemo_read_frame_information(int rewrite)
 		case ND_EVENT_SOUND:
 			{
 				int soundno;
-			nd_read_int(&soundno);
-			if (nd_playback_v_bad_read) {done = -1; break; }
-			if (rewrite)
-			{
-				nd_write_int(soundno);
+			if (!event.read_for_playback(soundno))
 				break;
-			}
 			if (Newdemo_vcr_state == ND_STATE_PLAYBACK)
 				digi_play_sample(static_cast<sound_effect>(soundno), F1_0);
 			}
 			break;
 
 		case ND_EVENT_SOUND_3D:
-			{
-				int soundno;
-			nd_read_int(&soundno);
-			nd_read_int(&angle);
-			nd_read_int(&volume);
-			if (nd_playback_v_bad_read) { done = -1; break; }
-			if (rewrite)
-			{
-				nd_write_int(soundno);
-				nd_write_int(angle);
-				nd_write_int(volume);
-				break;
-			}
-			if (Newdemo_vcr_state == ND_STATE_PLAYBACK)
-				digi_play_sample_3d(static_cast<sound_effect>(soundno), sound_pan{angle}, volume);
-			}
-			break;
-
 		case ND_EVENT_SOUND_3D_ONCE:
 			{
 				int soundno;
-			nd_read_int(&soundno);
-			nd_read_int(&angle);
-			nd_read_int(&volume);
-			if (nd_playback_v_bad_read) { done = -1; break; }
-			if (rewrite)
-			{
-				nd_write_int(soundno);
-				nd_write_int(angle);
-				nd_write_int(volume);
+			if (!event.read_for_playback(soundno, angle, volume))
 				break;
-			}
 			if (Newdemo_vcr_state == ND_STATE_PLAYBACK)
 				digi_play_sample_3d(static_cast<sound_effect>(soundno), sound_pan{angle}, volume);
 			}
@@ -2236,22 +2172,8 @@ static int newdemo_read_frame_information(int rewrite)
 			{
 				int soundno, max_volume, max_distance, loop_start, loop_end;
 				int signature;
-				nd_read_int( &soundno );
-				nd_read_int( &signature );
-				nd_read_int( &max_volume );
-				nd_read_int( &max_distance );
-				nd_read_int( &loop_start );
-				nd_read_int( &loop_end );
-				if (rewrite)
-				{
-					nd_write_int( soundno );
-					nd_write_int( signature );
-					nd_write_int( max_volume );
-					nd_write_int( max_distance );
-					nd_write_int( loop_start );
-					nd_write_int( loop_end );
+				if (!event.read_for_playback(soundno, signature, max_volume, max_distance, loop_start, loop_end))
 					break;
-				}
 				auto objnum = newdemo_find_object(object_signature_t{static_cast<uint16_t>(signature)});
 				if ( objnum != object_none && Newdemo_vcr_state == ND_STATE_PLAYBACK)  {   //  @mk, 2/22/96, John told me to.
 					digi_link_sound_to_object3(static_cast<sound_effect>(soundno), objnum, 1, max_volume, sound_stack::allow_stacking, vm_distance{max_distance}, loop_start, loop_end);
@@ -2262,12 +2184,8 @@ static int newdemo_read_frame_information(int rewrite)
 		case ND_EVENT_KILL_SOUND_TO_OBJ:
 			{
 				int signature;
-				nd_read_int( &signature );
-				if (rewrite)
-				{
-					nd_write_int( signature );
+				if (!event.read_for_playback(signature))
 					break;
-				}
 				auto objnum = newdemo_find_object(object_signature_t{static_cast<uint16_t>(signature)});
 				if ( objnum != object_none && Newdemo_vcr_state == ND_STATE_PLAYBACK)  {   //  @mk, 2/22/96, John told me to.
 					digi_kill_sound_linked_to_object(objnum);
@@ -2288,8 +2206,7 @@ static int newdemo_read_frame_information(int rewrite)
 			if (nd_playback_v_bad_read) { done = -1; break; }
 			if (rewrite)
 			{
-				nd_write_int(segnum);
-				nd_write_int(side);
+				nd_write_int(segnum, side);
 				nd_write_fix(damage);
 				nd_write_int(player);
 				break;
@@ -2319,9 +2236,7 @@ static int newdemo_read_frame_information(int rewrite)
 			if (nd_playback_v_bad_read) { done = -1; break; }
 			if (rewrite)
 			{
-				nd_write_int(segnum);
-				nd_write_int(iside);
-				nd_write_int(objnum);
+				nd_write_int(segnum, iside, objnum);
 #if DXX_BUILD_DESCENT == 1
 				break;
 #elif DXX_BUILD_DESCENT == 2
@@ -2377,27 +2292,14 @@ static int newdemo_read_frame_information(int rewrite)
 		case ND_EVENT_HOSTAGE_RESCUED: {
 			int hostage_number;
 
-			nd_read_int(&hostage_number);
-			if (nd_playback_v_bad_read) { done = -1; break; }
-			if (rewrite)
-			{
-				nd_write_int(hostage_number);
+			if (!event.read_for_playback(hostage_number))
 				break;
-			}
 			if (Newdemo_vcr_state != ND_STATE_PAUSED)
 				hostage_rescue();
 			break;
 		}
 
 		case ND_EVENT_MORPH_FRAME: {
-#if 0
-			morph_data *md;
-
-			md = &morph_objects[0];
-			if (newdemo_read( md->morph_vecs, sizeof(md->morph_vecs), 1 )!=1) { done=-1; break; }
-			if (newdemo_read( md->submodel_active, sizeof(md->submodel_active), 1 )!=1) { done=-1; break; }
-			if (newdemo_read( md->submodel_startpoints, sizeof(md->submodel_startpoints), 1 )!=1) { done=-1; break; }
-#endif
 			const auto &&obj = obj_allocate(LevelUniqueObjectState);
 			if (obj==object_none)
 				break;
@@ -2410,10 +2312,8 @@ static int newdemo_read_frame_information(int rewrite)
 			}
 			obj->render_type = render_type::RT_POLYOBJ;
 			if (Newdemo_vcr_state != ND_STATE_PAUSED) {
-				if (Newdemo_vcr_state != ND_STATE_PAUSED) {
-					auto segnum = obj->segnum;
-					obj_link_unchecked(Objects.vmptr, obj, Segments.vmptridx(segnum));
-				}
+				auto segnum = obj->segnum;
+				obj_link_unchecked(Objects.vmptr, obj, Segments.vmptridx(segnum));
 			}
 			break;
 		}
@@ -2431,8 +2331,7 @@ static int newdemo_read_frame_information(int rewrite)
 			if (nd_playback_v_bad_read) {done = -1; break; }
 			if (rewrite)
 			{
-				nd_write_int(segnum);
-				nd_write_int(underlying_value(side));
+				nd_write_int(segnum, underlying_value(side));
 				break;
 			}
 			if (Newdemo_vcr_state != ND_STATE_PAUSED)
@@ -2458,48 +2357,27 @@ static int newdemo_read_frame_information(int rewrite)
 		case ND_EVENT_HUD_MESSAGE: {
 			char hud_msg[60];
 
-			nd_read_string(hud_msg);
-			if (nd_playback_v_bad_read) { done = -1; break; }
-			if (rewrite)
-			{
-				nd_write_string(&(hud_msg[0]));
+			if (!event.read_for_playback(hud_msg))
 				break;
-			}
 			if (Newdemo_vcr_state != ND_STATE_PAUSED)
 				HUD_init_message_literal( HM_DEFAULT, hud_msg );
 			break;
 			}
 #if DXX_BUILD_DESCENT == 2
 		case ND_EVENT_START_GUIDED:
-			if ((Newdemo_vcr_state == ND_STATE_PLAYBACK) || (Newdemo_vcr_state == ND_STATE_FASTFORWARD) || (Newdemo_vcr_state == ND_STATE_ONEFRAMEFORWARD)) {
-				nd_playback_v_guided = 1;
-			} else if ((Newdemo_vcr_state == ND_STATE_REWINDING) || (Newdemo_vcr_state == ND_STATE_ONEFRAMEBACKWARD)) {
-				nd_playback_v_guided = 0;
-			}
-			break;
 		case ND_EVENT_END_GUIDED:
-			if ((Newdemo_vcr_state == ND_STATE_REWINDING) || (Newdemo_vcr_state == ND_STATE_ONEFRAMEBACKWARD)) {
-				nd_playback_v_guided = 1;
-			} else if ((Newdemo_vcr_state == ND_STATE_PLAYBACK) || (Newdemo_vcr_state == ND_STATE_FASTFORWARD) || (Newdemo_vcr_state == ND_STATE_ONEFRAMEFORWARD)) {
-				nd_playback_v_guided = 0;
-			}
+			if (playing_forward())
+				nd_playback_v_guided = c == ND_EVENT_START_GUIDED;
+			else if (playing_backward())
+				nd_playback_v_guided = c == ND_EVENT_END_GUIDED;
 			break;
-#endif
 
+#endif
 		case ND_EVENT_PALETTE_EFFECT: {
 			short r, g, b;
 
-			nd_read_short(&r);
-			nd_read_short(&g);
-			nd_read_short(&b);
-			if (nd_playback_v_bad_read) { done = -1; break; }
-			if (rewrite)
-			{
-				nd_write_short(r);
-				nd_write_short(g);
-				nd_write_short(b);
+			if (!event.read_for_playback(r, g, b))
 				break;
-			}
 			PALETTE_FLASH_SET(r,g,b);
 			break;
 		}
@@ -2515,8 +2393,7 @@ static int newdemo_read_frame_information(int rewrite)
 			if (nd_playback_v_bad_read) {done = -1; break; }
 			if (rewrite)
 			{
-				nd_write_byte(old_energy);
-				nd_write_byte(energy);
+				nd_write_byte(old_energy, energy);
 				break;
 			}
 			auto &player_info = get_local_plrobj().ctype.player_info;
@@ -2524,9 +2401,9 @@ static int newdemo_read_frame_information(int rewrite)
 				player_info.energy = i2f(energy);
 			else
 			{
-			if ((Newdemo_vcr_state == ND_STATE_PLAYBACK) || (Newdemo_vcr_state == ND_STATE_FASTFORWARD) || (Newdemo_vcr_state == ND_STATE_ONEFRAMEFORWARD)) {
+			if (playing_forward()) {
 				player_info.energy = i2f(energy);
-			} else if ((Newdemo_vcr_state == ND_STATE_REWINDING) || (Newdemo_vcr_state == ND_STATE_ONEFRAMEBACKWARD)) {
+			} else if (playing_backward()) {
 				if (old_energy != 255)
 					player_info.energy = i2f(old_energy);
 			}
@@ -2539,19 +2416,12 @@ static int newdemo_read_frame_information(int rewrite)
 			ubyte afterburner;
 			ubyte old_afterburner;
 
-			nd_read_byte(&old_afterburner);
-			nd_read_byte(&afterburner);
-			if (nd_playback_v_bad_read) {done = -1; break; }
-			if (rewrite)
-			{
-				nd_write_byte(old_afterburner);
-				nd_write_byte(afterburner);
+			if (!event.read_for_playback(old_afterburner, afterburner))
 				break;
-			}
-			if ((Newdemo_vcr_state == ND_STATE_PLAYBACK) || (Newdemo_vcr_state == ND_STATE_FASTFORWARD) || (Newdemo_vcr_state == ND_STATE_ONEFRAMEFORWARD)) {
+			if (playing_forward()) {
 				Afterburner_charge = afterburner<<9;
 // 				if (Afterburner_charge < 0) Afterburner_charge=f1_0;
-			} else if ((Newdemo_vcr_state == ND_STATE_REWINDING) || (Newdemo_vcr_state == ND_STATE_ONEFRAMEBACKWARD)) {
+			} else if (playing_backward()) {
 				if (old_afterburner != 255)
 					Afterburner_charge = old_afterburner<<9;
 			}
@@ -2569,17 +2439,16 @@ static int newdemo_read_frame_information(int rewrite)
 			if (nd_playback_v_bad_read) {done = -1; break; }
 			if (rewrite)
 			{
-				nd_write_byte(old_shield);
-				nd_write_byte(shield);
+				nd_write_byte(old_shield, shield);
 				break;
 			}
 			if (shareware)
 				get_local_plrobj().shields = i2f(shield);
 			else
 			{
-			if ((Newdemo_vcr_state == ND_STATE_PLAYBACK) || (Newdemo_vcr_state == ND_STATE_FASTFORWARD) || (Newdemo_vcr_state == ND_STATE_ONEFRAMEFORWARD)) {
+			if (playing_forward()) {
 				get_local_plrobj().shields = i2f(shield);
-			} else if ((Newdemo_vcr_state == ND_STATE_REWINDING) || (Newdemo_vcr_state == ND_STATE_ONEFRAMEBACKWARD)) {
+			} else if (playing_backward()) {
 				if (old_shield != 255)
 					get_local_plrobj().shields = i2f(old_shield);
 			}
@@ -2589,13 +2458,8 @@ static int newdemo_read_frame_information(int rewrite)
 
 		case ND_EVENT_PLAYER_FLAGS: {
 			int recorded_player_flags;
-			nd_read_int(&recorded_player_flags);
-			if (nd_playback_v_bad_read) {done = -1; break; }
-			if (rewrite)
-			{
-				nd_write_int(recorded_player_flags);
+			if (!event.read_for_playback(recorded_player_flags))
 				break;
-			}
 
 			const player_flags old_player_flags{static_cast<unsigned>(recorded_player_flags) >> 16};
 			const player_flags new_player_flags{static_cast<unsigned>(recorded_player_flags)};
@@ -2623,7 +2487,7 @@ static int newdemo_read_frame_information(int rewrite)
 						t = GameTime64 - (INVULNERABLE_TIME_MAX / 2);
 				}
 				player_info.powerup_flags = old_player_flags;
-			} else if ((Newdemo_vcr_state == ND_STATE_PLAYBACK) || (Newdemo_vcr_state == ND_STATE_FASTFORWARD) || (Newdemo_vcr_state == ND_STATE_ONEFRAMEFORWARD)) {
+			} else if (playing_forward()) {
 				auto &player_info = get_local_plrobj().ctype.player_info;
 				if (old_cloaked != new_cloaked)
 				{
@@ -2653,14 +2517,8 @@ static int newdemo_read_frame_information(int rewrite)
 		{
 			ubyte weapon_type, weapon_num;
 
-			nd_read_byte(&weapon_type);
-			nd_read_byte(&weapon_num);
-			if (rewrite)
-			{
-				nd_write_byte(weapon_type);
-				nd_write_byte(weapon_num);
+			if (!event.read_for_playback(weapon_type, weapon_num))
 				break;
-			}
 
 			auto &player_info = get_local_plrobj().ctype.player_info;
 			if (weapon_type == 0)
@@ -2675,23 +2533,15 @@ static int newdemo_read_frame_information(int rewrite)
 			ubyte weapon_type, weapon_num;
 			ubyte old_weapon;
 
-			nd_read_byte(&weapon_type);
-			nd_read_byte(&weapon_num);
-			nd_read_byte(&old_weapon);
-			if (rewrite)
-			{
-				nd_write_byte(weapon_type);
-				nd_write_byte(weapon_num);
-				nd_write_byte(old_weapon);
+			if (!event.read_for_playback(weapon_type, weapon_num, old_weapon))
 				break;
-			}
 			auto &player_info = get_local_plrobj().ctype.player_info;
-			if ((Newdemo_vcr_state == ND_STATE_PLAYBACK) || (Newdemo_vcr_state == ND_STATE_FASTFORWARD) || (Newdemo_vcr_state == ND_STATE_ONEFRAMEFORWARD)) {
+			if (playing_forward()) {
 				if (weapon_type == 0)
 					player_info.Primary_weapon = static_cast<primary_weapon_index>(weapon_num);
 				else
 					player_info.Secondary_weapon = static_cast<secondary_weapon_index>(weapon_num);
-			} else if ((Newdemo_vcr_state == ND_STATE_REWINDING) || (Newdemo_vcr_state == ND_STATE_ONEFRAMEBACKWARD)) {
+			} else if (playing_backward()) {
 				if (weapon_type == 0)
 					player_info.Primary_weapon = static_cast<primary_weapon_index>(old_weapon);
 				else
@@ -2705,16 +2555,8 @@ static int newdemo_read_frame_information(int rewrite)
 			sbyte side;
 			vms_vector pnt;
 
-			nd_read_segnum16(segnum);
-			nd_read_byte(&side);
-			nd_read_vector(pnt);
-			if (rewrite)
-			{
-				nd_write_short(segnum);
-				nd_write_byte(side);
-				nd_write_vector(pnt);
+			if (!event.read_for_playback(segnum, side, pnt))
 				break;
-			}
 			if (Newdemo_vcr_state != ND_STATE_PAUSED)
 			{
 #if DXX_BUILD_DESCENT == 1
@@ -2736,21 +2578,18 @@ static int newdemo_read_frame_information(int rewrite)
 		case ND_EVENT_HOMING_DISTANCE: {
 			short distance;
 
-			nd_read_short(&distance);
-			if (rewrite)
-			{
-				nd_write_short(distance);
+			if (!event.read_for_playback(distance))
 				break;
-			}
 			get_local_plrobj().ctype.player_info.homing_object_dist = i2f(distance << 16);
 			break;
 		}
 
 		case ND_EVENT_LETTERBOX:
-			if ((Newdemo_vcr_state == ND_STATE_PLAYBACK) || (Newdemo_vcr_state == ND_STATE_FASTFORWARD) || (Newdemo_vcr_state == ND_STATE_ONEFRAMEFORWARD)) {
-				nd_playback_v_dead = 1;
-			} else if ((Newdemo_vcr_state == ND_STATE_REWINDING) || (Newdemo_vcr_state == ND_STATE_ONEFRAMEBACKWARD))
-				nd_playback_v_dead = 0;
+		case ND_EVENT_RESTORE_COCKPIT:
+			if (playing_forward())
+				nd_playback_v_dead = c == ND_EVENT_LETTERBOX;
+			else if (playing_backward())
+				nd_playback_v_dead = c == ND_EVENT_RESTORE_COCKPIT;
 			break;
 
 #if DXX_BUILD_DESCENT == 2
@@ -2763,49 +2602,20 @@ static int newdemo_read_frame_information(int rewrite)
 		}
 #endif
 		case ND_EVENT_REARVIEW:
-			if ((Newdemo_vcr_state == ND_STATE_PLAYBACK) || (Newdemo_vcr_state == ND_STATE_FASTFORWARD) || (Newdemo_vcr_state == ND_STATE_ONEFRAMEFORWARD)) {
-				nd_playback_v_rear = 1;
-			} else if ((Newdemo_vcr_state == ND_STATE_REWINDING) || (Newdemo_vcr_state == ND_STATE_ONEFRAMEBACKWARD)) {
-				nd_playback_v_rear = 0;
-			}
-			break;
-
-		case ND_EVENT_RESTORE_COCKPIT:
-			if ((Newdemo_vcr_state == ND_STATE_REWINDING) || (Newdemo_vcr_state == ND_STATE_ONEFRAMEBACKWARD)) {
-				nd_playback_v_dead = 1;
-			} else if ((Newdemo_vcr_state == ND_STATE_PLAYBACK) || (Newdemo_vcr_state == ND_STATE_FASTFORWARD) || (Newdemo_vcr_state == ND_STATE_ONEFRAMEFORWARD))
-				nd_playback_v_dead = 0;
-			break;
-
-
 		case ND_EVENT_RESTORE_REARVIEW:
-			if ((Newdemo_vcr_state == ND_STATE_REWINDING) || (Newdemo_vcr_state == ND_STATE_ONEFRAMEBACKWARD)) {
-				nd_playback_v_rear= 1;
-			} else if ((Newdemo_vcr_state == ND_STATE_PLAYBACK) || (Newdemo_vcr_state == ND_STATE_FASTFORWARD) || (Newdemo_vcr_state == ND_STATE_ONEFRAMEFORWARD)) {
-				nd_playback_v_rear = 0;
-			}
+			if (playing_forward())
+				nd_playback_v_rear = c == ND_EVENT_REARVIEW;
+			else if (playing_backward())
+				nd_playback_v_rear = c == ND_EVENT_RESTORE_REARVIEW;
 			break;
-
 
 		case ND_EVENT_WALL_SET_TMAP_NUM1: {
 			segnum_t seg, cseg;
 			uint16_t tmap;
 			uint8_t side, cside;
 
-			nd_read_segnum16(seg);
-			nd_read_byte(&side);
-			nd_read_segnum16(cseg);
-			nd_read_byte(&cside);
-			nd_read_short( &tmap );
-			if (rewrite)
-			{
-				nd_write_short(seg);
-				nd_write_byte(side);
-				nd_write_short(cseg);
-				nd_write_byte(cside);
-				nd_write_short(tmap);
+			if (!event.read_for_playback(seg, side, cseg, cside, tmap))
 				break;
-			}
 			if ((Newdemo_vcr_state != ND_STATE_PAUSED) && (Newdemo_vcr_state != ND_STATE_REWINDING) && (Newdemo_vcr_state != ND_STATE_ONEFRAMEBACKWARD))
 				vmsegptr(seg)->unique_segment::sides[(sidenum_t{side})].tmap_num = vmsegptr(cseg)->unique_segment::sides[(sidenum_t{cside})].tmap_num = texture1_value{tmap};
 			break;
@@ -2816,20 +2626,8 @@ static int newdemo_read_frame_information(int rewrite)
 			uint16_t tmap;
 			uint8_t side, cside;
 
-			nd_read_segnum16(seg);
-			nd_read_byte(&side);
-			nd_read_segnum16(cseg);
-			nd_read_byte(&cside);
-			nd_read_short( &tmap );
-			if (rewrite)
-			{
-				nd_write_short(seg);
-				nd_write_byte(side);
-				nd_write_short(cseg);
-				nd_write_byte(cside);
-				nd_write_short(tmap);
+			if (!event.read_for_playback(seg, side, cseg, cside, tmap))
 				break;
-			}
 			if ((Newdemo_vcr_state != ND_STATE_PAUSED) && (Newdemo_vcr_state != ND_STATE_REWINDING) && (Newdemo_vcr_state != ND_STATE_ONEFRAMEBACKWARD)) {
 				unique_segment &s0 = *vmsegptr(seg);
 				auto &tmap_num2 = s0.sides[(sidenum_t{side})].tmap_num2;
@@ -2838,43 +2636,26 @@ static int newdemo_read_frame_information(int rewrite)
 			break;
 		}
 
-		case ND_EVENT_MULTI_CLOAK: {
-			sbyte pnum;
-
-			nd_read_byte(&pnum);
-			if (rewrite)
-			{
-				nd_write_byte(pnum);
-				break;
-			}
-			auto &player_info = get_local_plrobj().ctype.player_info;
-			if ((Newdemo_vcr_state == ND_STATE_REWINDING) || (Newdemo_vcr_state == ND_STATE_ONEFRAMEBACKWARD)) {
-				player_info.powerup_flags &= ~player_flag::cloaked;
-				DXX_MAKE_VAR_UNDEFINED(player_info.cloak_time);
-			} else if ((Newdemo_vcr_state == ND_STATE_PLAYBACK) || (Newdemo_vcr_state == ND_STATE_FASTFORWARD) || (Newdemo_vcr_state == ND_STATE_ONEFRAMEFORWARD)) {
-				player_info.powerup_flags |= player_flag::cloaked;
-				player_info.cloak_time = GameTime64  - (CLOAK_TIME_MAX / 2);
-			}
-			break;
-		}
-
+		case ND_EVENT_MULTI_CLOAK:
 		case ND_EVENT_MULTI_DECLOAK: {
 			sbyte pnum;
-
-			nd_read_byte(&pnum);
-			if (rewrite)
-			{
-				nd_write_byte(pnum);
+			if (!event.read_for_playback(pnum))
 				break;
-			}
-
-			auto &player_info = get_local_plrobj().ctype.player_info;
-			if ((Newdemo_vcr_state == ND_STATE_REWINDING) || (Newdemo_vcr_state == ND_STATE_ONEFRAMEBACKWARD)) {
-				player_info.powerup_flags |= player_flag::cloaked;
-				player_info.cloak_time = GameTime64 - (CLOAK_TIME_MAX / 2);
-			} else if ((Newdemo_vcr_state == ND_STATE_PLAYBACK) || (Newdemo_vcr_state == ND_STATE_FASTFORWARD) || (Newdemo_vcr_state == ND_STATE_ONEFRAMEFORWARD)) {
-				player_info.powerup_flags &= ~player_flag::cloaked;
-				DXX_MAKE_VAR_UNDEFINED(player_info.cloak_time);
+			if (playing_forward() || playing_backward())
+			{
+				auto &player_info = get_local_plrobj().ctype.player_info;
+				const bool cloaked = playing_forward()
+					? c == ND_EVENT_MULTI_CLOAK : c == ND_EVENT_MULTI_DECLOAK;
+				if (cloaked)
+				{
+					player_info.powerup_flags |= player_flag::cloaked;
+					player_info.cloak_time = GameTime64 - (CLOAK_TIME_MAX / 2);
+				}
+				else
+				{
+					player_info.powerup_flags &= ~player_flag::cloaked;
+					DXX_MAKE_VAR_UNDEFINED(player_info.cloak_time);
+				}
 			}
 			break;
 		}
@@ -2882,16 +2663,12 @@ static int newdemo_read_frame_information(int rewrite)
 		case ND_EVENT_MULTI_DEATH: {
 			uint8_t pnum;
 
-			nd_read_byte(&pnum);
-			if (rewrite)
-			{
-				nd_write_byte(pnum);
+			if (!event.read_for_playback(pnum))
 				break;
-			}
 			auto &player_info = vmobjptr(vcplayerptr(static_cast<unsigned>(pnum))->objnum)->ctype.player_info;
-			if ((Newdemo_vcr_state == ND_STATE_REWINDING) || (Newdemo_vcr_state == ND_STATE_ONEFRAMEBACKWARD))
+			if (playing_backward())
 				player_info.net_killed_total--;
-			else if ((Newdemo_vcr_state == ND_STATE_PLAYBACK) || (Newdemo_vcr_state == ND_STATE_FASTFORWARD) || (Newdemo_vcr_state == ND_STATE_ONEFRAMEFORWARD))
+			else if (playing_forward())
 				player_info.net_killed_total++;
 			break;
 		}
@@ -2899,20 +2676,14 @@ static int newdemo_read_frame_information(int rewrite)
 		case ND_EVENT_MULTI_KILL: {
 			uint8_t pnum, kill;
 
-			nd_read_byte(&pnum);
-			nd_read_byte(&kill);
-			if (rewrite)
-			{
-				nd_write_byte(pnum);
-				nd_write_byte(kill);
+			if (!event.read_for_playback(pnum, kill))
 				break;
-			}
 			auto &player_info = vmobjptr(vcplayerptr(static_cast<unsigned>(pnum))->objnum)->ctype.player_info;
-			if ((Newdemo_vcr_state == ND_STATE_REWINDING) || (Newdemo_vcr_state == ND_STATE_ONEFRAMEBACKWARD)) {
+			if (playing_backward()) {
 				player_info.net_kills_total -= kill;
 				if (+(Newdemo_game_mode & GM_TEAM))
 					team_kills[multi_get_team_from_player(Netgame, pnum)] -= kill;
-			} else if ((Newdemo_vcr_state == ND_STATE_PLAYBACK) || (Newdemo_vcr_state == ND_STATE_FASTFORWARD) || (Newdemo_vcr_state == ND_STATE_ONEFRAMEFORWARD)) {
+			} else if (playing_forward()) {
 				player_info.net_kills_total += kill;
 				if (+(Newdemo_game_mode & GM_TEAM))
 					team_kills[multi_get_team_from_player(Netgame, pnum)] += kill;
@@ -2938,19 +2709,17 @@ static int newdemo_read_frame_information(int rewrite)
 			nd_read_string(new_callsign.buffer());
 			if (rewrite)
 			{
-				nd_write_byte(pnum);
-				nd_write_byte(new_player);
+				nd_write_byte(pnum, new_player);
 				if (!new_player) {
 					nd_write_string(old_callsign);
-					nd_write_int(killed_total);
-					nd_write_int(kills_total);
+					nd_write_int(killed_total, kills_total);
 				}
 				nd_write_string(static_cast<const char *>(new_callsign));
 				break;
 			}
 			auto &plr = *vmplayerptr(static_cast<unsigned>(pnum));
 			auto &player_info = vmobjptr(plr.objnum)->ctype.player_info;
-			if ((Newdemo_vcr_state == ND_STATE_REWINDING) || (Newdemo_vcr_state == ND_STATE_ONEFRAMEBACKWARD)) {
+			if (playing_backward()) {
 				plr.connected = player_connection_status::disconnected;
 				if (!new_player) {
 					plr.callsign = old_callsign;
@@ -2959,7 +2728,7 @@ static int newdemo_read_frame_information(int rewrite)
 				} else {
 					N_players--;
 				}
-			} else if ((Newdemo_vcr_state == ND_STATE_PLAYBACK) || (Newdemo_vcr_state == ND_STATE_FASTFORWARD) || (Newdemo_vcr_state == ND_STATE_ONEFRAMEFORWARD)) {
+			} else if (playing_forward()) {
 				plr.connected = player_connection_status::playing;
 				player_info.net_kills_total = 0;
 				player_info.net_killed_total = 0;
@@ -2973,15 +2742,11 @@ static int newdemo_read_frame_information(int rewrite)
 		case ND_EVENT_MULTI_RECONNECT: {
 			uint8_t pnum;
 
-			nd_read_byte(&pnum);
-			if (rewrite)
-			{
-				nd_write_byte(pnum);
+			if (!event.read_for_playback(pnum))
 				break;
-			}
-			if ((Newdemo_vcr_state == ND_STATE_REWINDING) || (Newdemo_vcr_state == ND_STATE_ONEFRAMEBACKWARD))
+			if (playing_backward())
 				vmplayerptr(static_cast<unsigned>(pnum))->connected = player_connection_status::disconnected;
-			else if ((Newdemo_vcr_state == ND_STATE_PLAYBACK) || (Newdemo_vcr_state == ND_STATE_FASTFORWARD) || (Newdemo_vcr_state == ND_STATE_ONEFRAMEFORWARD))
+			else if (playing_forward())
 				vmplayerptr(static_cast<unsigned>(pnum))->connected = player_connection_status::playing;
 			break;
 		}
@@ -2989,21 +2754,17 @@ static int newdemo_read_frame_information(int rewrite)
 		case ND_EVENT_MULTI_DISCONNECT: {
 			uint8_t pnum;
 
-			nd_read_byte(&pnum);
-			if (rewrite)
-			{
-				nd_write_byte(pnum);
+			if (!event.read_for_playback(pnum))
 				break;
-			}
 #if DXX_BUILD_DESCENT == 1
-			if ((Newdemo_vcr_state == ND_STATE_REWINDING) || (Newdemo_vcr_state == ND_STATE_ONEFRAMEBACKWARD))
+			if (playing_backward())
 				vmplayerptr(static_cast<unsigned>(pnum))->connected = player_connection_status::disconnected;
-			else if ((Newdemo_vcr_state == ND_STATE_PLAYBACK) || (Newdemo_vcr_state == ND_STATE_FASTFORWARD) || (Newdemo_vcr_state == ND_STATE_ONEFRAMEFORWARD))
+			else if (playing_forward())
 				vmplayerptr(static_cast<unsigned>(pnum))->connected = player_connection_status::playing;
 #elif DXX_BUILD_DESCENT == 2
-			if ((Newdemo_vcr_state == ND_STATE_REWINDING) || (Newdemo_vcr_state == ND_STATE_ONEFRAMEBACKWARD))
+			if (playing_backward())
 				vmplayerptr(static_cast<unsigned>(pnum))->connected = player_connection_status::playing;
-			else if ((Newdemo_vcr_state == ND_STATE_PLAYBACK) || (Newdemo_vcr_state == ND_STATE_FASTFORWARD) || (Newdemo_vcr_state == ND_STATE_ONEFRAMEFORWARD))
+			else if (playing_forward())
 				vmplayerptr(static_cast<unsigned>(pnum))->connected = player_connection_status::disconnected;
 #endif
 			break;
@@ -3013,18 +2774,12 @@ static int newdemo_read_frame_information(int rewrite)
 			int score;
 			sbyte pnum;
 
-			nd_read_byte(&pnum);
-			nd_read_int(&score);
-			if (rewrite)
-			{
-				nd_write_byte(pnum);
-				nd_write_int(score);
+			if (!event.read_for_playback(pnum, score))
 				break;
-			}
 			auto &player_info = get_local_plrobj().ctype.player_info;
-			if ((Newdemo_vcr_state == ND_STATE_REWINDING) || (Newdemo_vcr_state == ND_STATE_ONEFRAMEBACKWARD))
+			if (playing_backward())
 				player_info.mission.score -= score;
-			else if ((Newdemo_vcr_state == ND_STATE_PLAYBACK) || (Newdemo_vcr_state == ND_STATE_FASTFORWARD) || (Newdemo_vcr_state == ND_STATE_ONEFRAMEFORWARD))
+			else if (playing_forward())
 				player_info.mission.score += score;
 			Game_mode = Newdemo_game_mode;
 			multi_sort_kill_list();
@@ -3035,16 +2790,12 @@ static int newdemo_read_frame_information(int rewrite)
 		case ND_EVENT_PLAYER_SCORE: {
 			int score;
 
-			nd_read_int(&score);
-			if (rewrite)
-			{
-				nd_write_int(score);
+			if (!event.read_for_playback(score))
 				break;
-			}
 			auto &player_info = get_local_plrobj().ctype.player_info;
-			if ((Newdemo_vcr_state == ND_STATE_REWINDING) || (Newdemo_vcr_state == ND_STATE_ONEFRAMEBACKWARD))
+			if (playing_backward())
 				player_info.mission.score -= score;
-			else if ((Newdemo_vcr_state == ND_STATE_PLAYBACK) || (Newdemo_vcr_state == ND_STATE_FASTFORWARD) || (Newdemo_vcr_state == ND_STATE_ONEFRAMEFORWARD))
+			else if (playing_forward())
 				player_info.mission.score += score;
 			break;
 		}
@@ -3053,20 +2804,14 @@ static int newdemo_read_frame_information(int rewrite)
 		case ND_EVENT_PRIMARY_AMMO: {
 			unsigned short old_ammo, new_ammo;
 
-			nd_read_short(&old_ammo);
-			nd_read_short(&new_ammo);
-			if (rewrite)
-			{
-				nd_write_short(old_ammo);
-				nd_write_short(new_ammo);
+			if (!event.read_for_playback(old_ammo, new_ammo))
 				break;
-			}
 
 			unsigned short value;
 			// NOTE: Used (Primary_weapon==GAUSS_INDEX?VULCAN_INDEX:Primary_weapon) because game needs VULCAN_INDEX updated to show Gauss ammo
-			if ((Newdemo_vcr_state == ND_STATE_REWINDING) || (Newdemo_vcr_state == ND_STATE_ONEFRAMEBACKWARD))
+			if (playing_backward())
 				value = old_ammo;
-			else if ((Newdemo_vcr_state == ND_STATE_PLAYBACK) || (Newdemo_vcr_state == ND_STATE_FASTFORWARD) || (Newdemo_vcr_state == ND_STATE_ONEFRAMEFORWARD))
+			else if (playing_forward())
 				value = new_ammo;
 			else
 				break;
@@ -3084,19 +2829,13 @@ static int newdemo_read_frame_information(int rewrite)
 		case ND_EVENT_SECONDARY_AMMO: {
 			short old_ammo, new_ammo;
 
-			nd_read_short(&old_ammo);
-			nd_read_short(&new_ammo);
-			if (rewrite)
-			{
-				nd_write_short(old_ammo);
-				nd_write_short(new_ammo);
+			if (!event.read_for_playback(old_ammo, new_ammo))
 				break;
-			}
 
 			auto &player_info = get_local_plrobj().ctype.player_info;
-			if ((Newdemo_vcr_state == ND_STATE_REWINDING) || (Newdemo_vcr_state == ND_STATE_ONEFRAMEBACKWARD))
+			if (playing_backward())
 				player_info.secondary_ammo[player_info.Secondary_weapon] = old_ammo;
-			else if ((Newdemo_vcr_state == ND_STATE_PLAYBACK) || (Newdemo_vcr_state == ND_STATE_FASTFORWARD) || (Newdemo_vcr_state == ND_STATE_ONEFRAMEFORWARD))
+			else if (playing_forward())
 				player_info.secondary_ammo[player_info.Secondary_weapon] = new_ammo;
 			break;
 		}
@@ -3105,15 +2844,9 @@ static int newdemo_read_frame_information(int rewrite)
 			segnum_t segnum;
 			uint8_t iside;
 
-			nd_read_segnum16(segnum);
-			nd_read_byte(&iside);
-			if (rewrite)
-			{
-				nd_write_short(segnum);
-				nd_write_byte(iside);
+			if (!event.read_for_playback(segnum, iside))
 				break;
-			}
-			if ((Newdemo_vcr_state == ND_STATE_REWINDING) || (Newdemo_vcr_state == ND_STATE_ONEFRAMEBACKWARD)) {
+			if (playing_backward()) {
 				const auto &&segp = vmsegptridx(segnum);
 				const shared_segment &sseg = segp;
 				const auto side = static_cast<sidenum_t>(iside);
@@ -3135,18 +2868,12 @@ static int newdemo_read_frame_information(int rewrite)
 		case ND_EVENT_LASER_LEVEL: {
 			uint8_t old_level, new_level;
 
-			nd_read_byte(&old_level);
-			nd_read_byte(&new_level);
-			if (rewrite)
-			{
-				nd_write_byte(old_level);
-				nd_write_byte(new_level);
+			if (!event.read_for_playback(old_level, new_level))
 				break;
-			}
 			auto &player_info = get_local_plrobj().ctype.player_info;
-			if ((Newdemo_vcr_state == ND_STATE_REWINDING) || (Newdemo_vcr_state == ND_STATE_ONEFRAMEBACKWARD)) {
+			if (playing_backward()) {
 				player_info.laser_level = laser_level{old_level};
-			} else if ((Newdemo_vcr_state == ND_STATE_PLAYBACK) || (Newdemo_vcr_state == ND_STATE_FASTFORWARD) || (Newdemo_vcr_state == ND_STATE_ONEFRAMEFORWARD)) {
+			} else if (playing_forward()) {
 				player_info.laser_level = laser_level{new_level};
 			}
 			break;
@@ -3171,31 +2898,15 @@ static int newdemo_read_frame_information(int rewrite)
 			nd_read_short(&l3);
 			if (rewrite)
 			{
-				nd_write_byte(static_cast<uint8_t>(front_wall_num));
-				nd_write_byte(static_cast<uint8_t>(back_wall_num));
-				nd_write_byte(type);
-				nd_write_byte(state);
-				nd_write_byte(cloak_value);
-				nd_write_short(l0);
-				nd_write_short(l1);
-				nd_write_short(l2);
-				nd_write_short(l3);
+				nd_write_byte(static_cast<uint8_t>(front_wall_num), static_cast<uint8_t>(back_wall_num), type, state,
+					cloak_value);
+				nd_write_short(l0, l1, l2, l3);
 				break;
 			}
 
+			for (const auto wall_num : {front_wall_num, back_wall_num})
 			{
-				auto &w = *vmwallptr(front_wall_num);
-				w.type = type;
-				w.state = wall_state{state};
-				w.cloak_value = cloak_value;
-				auto &uvl = vmsegptr(w.segnum)->unique_segment::sides[w.sidenum].uvls;
-				uvl[side_relative_vertnum::_0].l = (static_cast<int>(l0)) << 8;
-				uvl[side_relative_vertnum::_1].l = (static_cast<int>(l1)) << 8;
-				uvl[side_relative_vertnum::_2].l = (static_cast<int>(l2)) << 8;
-				uvl[side_relative_vertnum::_3].l = (static_cast<int>(l3)) << 8;
-			}
-			{
-				auto &w = *vmwallptr(back_wall_num);
+				auto &w = *vmwallptr(wall_num);
 				w.type = type;
 				w.state = wall_state{state};
 				w.cloak_value = cloak_value;
@@ -3230,7 +2941,7 @@ static int newdemo_read_frame_information(int rewrite)
 					break;
 
 				pause_game_world_time p;
-				if ((Newdemo_vcr_state == ND_STATE_REWINDING) || (Newdemo_vcr_state == ND_STATE_ONEFRAMEBACKWARD))
+				if (playing_backward())
 					loaded_level = old_level;
 				else {
 					loaded_level = new_level;
@@ -3287,8 +2998,7 @@ static int newdemo_read_frame_information(int rewrite)
 						nd_write_byte (w.type);
 						nd_write_byte (underlying_value(w.flags));
 						nd_write_byte (underlying_value(w.state));
-						nd_write_short(underlying_value(side.tmap_num));
-						nd_write_short(underlying_value(side.tmap_num2));
+						nd_write_short(underlying_value(side.tmap_num), underlying_value(side.tmap_num2));
 					}
 				}
 
@@ -3912,8 +3622,7 @@ static void newdemo_write_end()
 			if (+(objp->ctype.player_info.powerup_flags & player_flag::cloaked))
 				cloaked |= (1 << i);
 		}
-		nd_write_byte(cloaked);
-		nd_write_byte(ND_EVENT_EOF);
+		nd_write_byte(cloaked, ND_EVENT_EOF);
 	} else {
 		nd_write_short(ND_EVENT_EOF);
 	}
@@ -3925,11 +3634,10 @@ static void newdemo_write_end()
 	byte_count += 10;       // from nd_record_v_framebytes_written
 
 	auto &player_info = get_local_plrobj().ctype.player_info;
-	nd_write_byte(static_cast<int8_t>(f2ir(player_info.energy)));
-	nd_write_byte(static_cast<int8_t>(f2ir(get_local_plrobj().shields)));
+	nd_write_byte(static_cast<int8_t>(f2ir(player_info.energy)), static_cast<int8_t>(f2ir(get_local_plrobj().shields)));
 	nd_write_int(+player_info.powerup_flags);        // be sure players flags are set
-	nd_write_byte(static_cast<int8_t>(static_cast<primary_weapon_index>(player_info.Primary_weapon)));
-	nd_write_byte(static_cast<int8_t>(static_cast<secondary_weapon_index>(player_info.Secondary_weapon)));
+	nd_write_byte(static_cast<int8_t>(static_cast<primary_weapon_index>(player_info.Primary_weapon)),
+		static_cast<int8_t>(static_cast<secondary_weapon_index>(player_info.Secondary_weapon)));
 	byte_count += 8;
 
 	for (const uint8_t i : xrange(MAX_PRIMARY_WEAPONS))
@@ -3954,8 +3662,7 @@ static void newdemo_write_end()
 				nd_write_int(pl_info.mission.score);
 				byte_count += 5;
 			} else {
-				nd_write_short(pl_info.net_killed_total);
-				nd_write_short(pl_info.net_kills_total);
+				nd_write_short(pl_info.net_killed_total, pl_info.net_kills_total);
 				byte_count += 5;
 			}
 		}
@@ -3966,8 +3673,7 @@ static void newdemo_write_end()
 	nd_write_short(byte_count);
 	}
 
-	nd_write_byte(Current_level_num);
-	nd_write_byte(ND_EVENT_EOF);
+	nd_write_byte(Current_level_num, ND_EVENT_EOF);
 }
 
 static bool guess_demo_name(ntstring<PATH_MAX - 16> &filename)
