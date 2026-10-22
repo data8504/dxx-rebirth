@@ -5009,6 +5009,9 @@ class DXXArchive(DXXCommon):
 		RuntimeTest('test-network-object-mapping', (
 			'common/unittest/network-object-mapping.cpp',
 			)),
+		RuntimeTest('test-mve-audio', (
+			'd2x-rebirth/unittest/mve_audio.cpp',
+			)),
 		RuntimeTest('test-mve-audio-stream', (
 			'd2x-rebirth/unittest/mve_audio_stream.cpp',
 			), use_default_libs=True),
