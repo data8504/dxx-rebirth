@@ -443,13 +443,13 @@ static void nd_write_shortpos(const object_base &obj)
 	const auto rtype = obj.render_type;
 	if ((rtype == render_type::RT_POLYOBJ || rtype == render_type::RT_HOSTAGE || rtype == render_type::RT_MORPH) || obj.type == object_type::OBJ_CAMERA)
 	{
-		uint8_t mask{0};
-		range_for (auto &i, sp.bytemat)
+		bool has_orientation{false};
+		range_for (const auto i, sp.bytemat)
 		{
 			nd_write_byte(i);
-			mask |= static_cast<uint8_t>(i);
+			has_orientation |= (i != 0);
 		}
-		if (!mask)
+		if (!has_orientation)
 		{
 			Int3();         // contact Allender about this.
 		}
@@ -921,8 +921,7 @@ static void nd_write_object(const vcobjptridx_t objp)
 
 	nd_write_byte(obj.id);
 	nd_write_byte(obj.flags);
-	const auto shortsig = nd_get_object_signature(objp);
-	nd_write_short(shortsig);
+	nd_write_short(nd_get_object_signature(objp));
 	nd_write_shortpos(obj);
 
 	if (obj.type != object_type::OBJ_HOSTAGE && obj.type != object_type::OBJ_ROBOT && obj.type != object_type::OBJ_PLAYER && obj.type != object_type::OBJ_POWERUP && obj.type != object_type::OBJ_CLUTTER)
