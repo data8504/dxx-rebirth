@@ -390,7 +390,17 @@ static void nd_write_short(short s)
 	newdemo_write(&s, 2, 1);
 }
 
+static void nd_write_short(const std::same_as<uint16_t> auto s)
+{
+	newdemo_write(&s, 2, 1);
+}
+
 static void nd_write_int(int i)
+{
+	newdemo_write(&i, 4, 1);
+}
+
+static void nd_write_int(const std::same_as<uint32_t> auto i)
 {
 	newdemo_write(&i, 4, 1);
 }
@@ -1153,7 +1163,7 @@ void newdemo_record_start_demo()
 	nd_record_v_secondary_ammo = -1;
 
 	for (const uint8_t i : xrange(MAX_PRIMARY_WEAPONS))
-		nd_write_short(primary_weapon_index{i} == primary_weapon_index::vulcan ? player_info.vulcan_ammo : 0);
+		nd_write_short(primary_weapon_index{i} == primary_weapon_index::vulcan ? player_info.vulcan_ammo : uint16_t{0});
 
 	range_for (auto &i, player_info.secondary_ammo)
 		nd_write_short(i);
@@ -4049,7 +4059,7 @@ static void newdemo_write_end()
 	byte_count += 8;
 
 	for (const uint8_t i : xrange(MAX_PRIMARY_WEAPONS))
-		nd_write_short(primary_weapon_index{i} == primary_weapon_index::vulcan ? player_info.vulcan_ammo : 0);
+		nd_write_short(primary_weapon_index{i} == primary_weapon_index::vulcan ? player_info.vulcan_ammo : uint16_t{0});
 
 	range_for (auto &i, player_info.secondary_ammo)
 		nd_write_short(i);
