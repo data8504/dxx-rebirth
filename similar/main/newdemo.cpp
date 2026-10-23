@@ -2184,7 +2184,7 @@ static int newdemo_read_frame_information(int rewrite)
 			if (!event.read_for_playback(soundno))
 				break;
 			if (Newdemo_vcr_state == ND_STATE_PLAYBACK)
-				digi_play_sample(static_cast<sound_effect>(soundno), F1_0);
+				digi_play_sample(build_sound_effect_from_untrusted(soundno), F1_0);
 			break;
 		}
 
@@ -2194,7 +2194,7 @@ static int newdemo_read_frame_information(int rewrite)
 			if (!event.read_for_playback(soundno, angle, volume))
 				break;
 			if (Newdemo_vcr_state == ND_STATE_PLAYBACK)
-				digi_play_sample_3d(static_cast<sound_effect>(soundno), sound_pan{angle}, volume);
+				digi_play_sample_3d(build_sound_effect_from_untrusted(soundno), sound_pan{angle}, volume);
 			break;
 		}
 
@@ -2206,7 +2206,7 @@ static int newdemo_read_frame_information(int rewrite)
 					break;
 				auto objnum = newdemo_find_object(object_signature_t{static_cast<uint16_t>(signature)});
 				if ( objnum != object_none && Newdemo_vcr_state == ND_STATE_PLAYBACK)  {   //  @mk, 2/22/96, John told me to.
-					digi_link_sound_to_object3(static_cast<sound_effect>(soundno), objnum, 1, max_volume, sound_stack::allow_stacking, vm_distance{max_distance}, loop_start, loop_end);
+					digi_link_sound_to_object3(build_sound_effect_from_untrusted(soundno), objnum, 1, max_volume, sound_stack::allow_stacking, vm_distance{max_distance}, loop_start, loop_end);
 				}
 			}
 			break;
