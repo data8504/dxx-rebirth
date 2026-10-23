@@ -364,8 +364,10 @@ static int _newdemo_write(const void *buffer, const std::size_t elsize, const st
 	if (elsize && nelem <= std::numeric_limits<std::size_t>::max() / elsize)
 	{
 		const auto total_size = elsize * nelem;
+		// The public byte total must fit int before converting or adding.
 		if (std::cmp_less_equal(total_size, std::numeric_limits<int>::max() - Newdemo_num_written))
 		{
+			// Legacy frame links retain only the low 16 bits.
 			nd_record_v_framebytes_written = static_cast<uint16_t>(nd_record_v_framebytes_written + total_size);
 			Newdemo_num_written += static_cast<int>(total_size);
 			Assert(outfile);
@@ -468,6 +470,7 @@ static T demo_read_value()
 	if constexpr (sizeof(Wire) > 1)
 		if (swap_endian)
 			value = std::byteswap(value);
+	// Interpret the wire representation; enum tags are not validated here.
 	return static_cast<T>(value);
 }
 
@@ -1987,6 +1990,7 @@ static void newdemo_pop_ctrlcen_triggers()
 			continue;
 		}
 		const auto anim_num = vcwallptr(wall_num)->clip_num;
+		// at() rejects negative clip numbers after conversion to its index type.
 		auto &wa = WallAnims.at(static_cast<std::size_t>(anim_num));
 		const auto n = wa.num_frames;
 		auto &seg0uside = seg->unique_segment::sides[side];
@@ -2919,6 +2923,7 @@ static int newdemo_read_frame_information(int rewrite)
 				const auto &&csegp = vmsegptr(sseg.children[side]);
 				const auto &&cside = find_connect_side(segp, csegp);
 				const auto anim_num = vmwallptr(sseg.sides[side].wall_num)->clip_num;
+				// at() rejects negative clip numbers after conversion to its index type.
 				auto &wa = WallAnims.at(static_cast<std::size_t>(anim_num));
 				auto &seg0uside = segp->unique_segment::sides[side];
 				auto &seg1uside = csegp->unique_segment::sides[cside];
@@ -3036,6 +3041,7 @@ static int newdemo_read_frame_information(int rewrite)
 			{
 				unsigned num_walls;
 				nd_read_int (&num_walls);
+				// The recorded 32-bit count must fit the bounded wall storage.
 				if (num_walls > Walls.size())
 				{
 					nd_playback_v_bad_read = -1;
