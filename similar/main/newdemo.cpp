@@ -516,6 +516,13 @@ static void nd_read_vector(vms_vector &v)
 	nd_read_int(&v.z);
 }
 
+static vms_vector nd_read_vector()
+{
+	vms_vector v;
+	nd_read_vector(v);
+	return v;
+}
+
 static void nd_read_angvec(vms_angvec &v)
 {
 	nd_read_short(&v.p);
@@ -561,7 +568,9 @@ namespace {
 
 static uint16_t nd_get_object_signature(const vcobjptridx_t objp)
 {
-	return (static_cast<uint16_t>(objp->signature) << 9) ^ objp.get_unchecked_index();  // It's OKAY! We made sure, obj->signature is never has a value which short cannot handle!!! We cannot do this otherwise, without breaking the demo format!
+	// The legacy identifier combines the signature and object slot, retaining
+	// only the low 16 bits. Preserve that mapping for recorded sound links.
+	return static_cast<uint16_t>((underlying_value(objp->signature) << 9) ^ objp.get_unchecked_index());
 }
 
 static void nd_read_object(const vmobjptridx_t obj)
@@ -569,7 +578,6 @@ static void nd_read_object(const vmobjptridx_t obj)
 	auto &Objects = LevelUniqueObjectState.Objects;
 	auto &vmobjptr = Objects.vmptr;
 	auto &Robot_info = LevelSharedRobotInfoState.Robot_info;
-	short shortsig{0};
 	const auto &pl_info = get_local_plrobj().ctype.player_info;
 	const auto saved = (&pl_info == &obj->ctype.player_info)
 		? std::pair<fix, player_info>(obj->shields, pl_info)
@@ -586,8 +594,7 @@ static void nd_read_object(const vmobjptridx_t obj)
 	 * blow by all other object information
 	 */
 	{
-		uint8_t rtype;
-		nd_read_byte(&rtype);
+		auto rtype = nd_read_byte<uint8_t>();
 		if (valid_render_type(rtype))
 			obj->render_type = render_type{rtype};
 		else
@@ -596,19 +603,13 @@ static void nd_read_object(const vmobjptridx_t obj)
 			obj->render_type = render_type::RT_NONE;
 		}
 	}
-	{
-		uint8_t t;
-		nd_read_byte(&t);
-		obj->type = build_valid_object_type_from_untrusted({t});
-	}
+	obj->type = build_valid_object_type_from_untrusted({nd_read_byte<uint8_t>()});
 	if (obj->render_type == render_type::RT_NONE && obj->type != object_type::OBJ_CAMERA)
 		return;
 
 	nd_read_byte(&obj->id);
 	nd_read_byte(&obj->flags);
-	nd_read_short(&shortsig);
-	// It's OKAY! We made sure, obj->signature is never has a value which short cannot handle!!! We cannot do this otherwise, without breaking the demo format!
-	obj->signature = object_signature_t{static_cast<uint16_t>(shortsig)};
+	obj->signature = object_signature_t{nd_read_short<uint16_t>()};
 	nd_read_shortpos(obj);
 
 #if DXX_BUILD_DESCENT == 2
@@ -645,11 +646,7 @@ static void nd_read_object(const vmobjptridx_t obj)
 
 	case object_type::OBJ_POWERUP:
 		obj->control_source = object::control_type::powerup;
-		{
-			uint8_t movement_type;
-			nd_read_byte(&movement_type);        // might have physics movement
-			obj->movement_source = typename object::movement_type{movement_type};
-		}
+		obj->movement_source = nd_read_byte<object::movement_type>();
 		obj->size = Powerup_info[get_powerup_id(obj)].size;
 		break;
 
@@ -673,48 +670,26 @@ static void nd_read_object(const vmobjptridx_t obj)
 		break;
 
 	default:
-		{
-			uint8_t control_type;
-			nd_read_byte(&control_type);
-			obj->control_source = typename object::control_type{control_type};
-		}
-		{
-			uint8_t movement_type;
-			nd_read_byte(&movement_type);
-			obj->movement_source = typename object::movement_type{movement_type};
-		}
+		obj->control_source = nd_read_byte<object::control_type>();
+		obj->movement_source = nd_read_byte<object::movement_type>();
 		nd_read_fix(&(obj->size));
 		break;
 	}
 
 
-	{
-		vms_vector last_pos;
-		nd_read_vector(last_pos);
-	}
+	nd_read_vector(); // Position has already been reconstructed from shortpos.
 	if (obj->type == object_type::OBJ_WEAPON && obj->render_type == render_type::RT_WEAPON_VCLIP)
 		nd_read_fix(&(obj->lifeleft));
 	else {
-		sbyte b;
-
-		// MWA old way -- won't work with big endian machines       nd_read_byte((uint8_t *)&(obj->lifeleft));
-		nd_read_byte(&b);
-		obj->lifeleft = static_cast<fix>(b);
+		obj->lifeleft = nd_read_byte<int8_t>();
 		if (obj->lifeleft == -1)
 			obj->lifeleft = IMMORTAL_TIME;
 		else
 			obj->lifeleft = obj->lifeleft << 12;
 	}
 
-	if ((obj->type == object_type::OBJ_ROBOT) && !shareware) {
-		if (Robot_info[get_robot_id(obj)].boss_flag != boss_robot_id::None)
-		{
-			sbyte cloaked;
-
-			nd_read_byte(&cloaked);
-			obj->ctype.ai_info.CLOAKED = cloaked;
-		}
-	}
+	if (obj->type == object_type::OBJ_ROBOT && !shareware && Robot_info[get_robot_id(obj)].boss_flag != boss_robot_id::None)
+		obj->ctype.ai_info.CLOAKED = nd_read_byte<int8_t>();
 
 	switch (obj->movement_source) {
 
@@ -751,7 +726,7 @@ static void nd_read_object(const vmobjptridx_t obj)
 				if (prev_obj->flags & OF_ATTACHED && prev_obj->ctype.expl_info.attach_parent!=object_none)
 					obj_attach(Objects, Objects.vmptridx(prev_obj->ctype.expl_info.attach_parent), obj);
 				else
-					obj->flags &= ~OF_ATTACHED;
+					obj->flags &= uint8_t{UINT8_MAX ^ OF_ATTACHED};
 			}
 			else
 				obj_attach(Objects, Objects.vmptridx(prev_obj), obj);
@@ -792,18 +767,11 @@ static void nd_read_object(const vmobjptridx_t obj)
 		int tmo;
 
 		if ((obj->type != object_type::OBJ_ROBOT) && (obj->type != object_type::OBJ_PLAYER) && (obj->type != object_type::OBJ_CLUTTER)) {
-			int i;
-			nd_read_int(&i);
-			obj->rtype.pobj_info.model_num.dsx = static_cast<polygon_model_index>(i);
-			nd_read_int(&i);
-			obj->rtype.pobj_info.subobj_flags = i;
+			obj->rtype.pobj_info.model_num.dsx = nd_read_int<polygon_model_index>();
+			obj->rtype.pobj_info.subobj_flags = nd_read_int<uint16_t>();
 		}
 
 		if ((obj->type != object_type::OBJ_PLAYER) && (obj->type != object_type::OBJ_DEBRIS))
-#if 0
-			range_for (auto &i, obj->pobj_info.anim_angles)
-				nd_read_angvec(&(i));
-#endif
 		range_for (auto &i, partial_range(obj->rtype.pobj_info.anim_angles, Polygon_models[obj->rtype.pobj_info.model_num.dsx].n_models))
 			nd_read_angvec(i);
 
@@ -835,11 +803,7 @@ static void nd_read_object(const vmobjptridx_t obj)
 		case render_type::RT_WEAPON_VCLIP:
 		case render_type::RT_FIREBALL:
 		case render_type::RT_HOSTAGE:
-		{
-			int vclip_num;
-			nd_read_int(&vclip_num);
-			obj->rtype.vclip_info.vclip_num = static_cast<vclip_index>(vclip_num);
-		}
+		obj->rtype.vclip_info.vclip_num = nd_read_int<vclip_index>();
 		nd_read_fix(&(obj->rtype.vclip_info.frametime));
 		nd_read_byte(&obj->rtype.vclip_info.framenum);
 		break;
@@ -861,7 +825,6 @@ static void nd_write_object(const vcobjptridx_t objp)
 	auto &obj = *objp;
 	auto &Robot_info = LevelSharedRobotInfoState.Robot_info;
 	int life;
-	short shortsig{0};
 
 #if DXX_BUILD_DESCENT == 2
 	if (obj.type == object_type::OBJ_ROBOT && get_robot_id(obj) == robot_id::special_reactor)
@@ -872,36 +835,32 @@ static void nd_write_object(const vcobjptridx_t objp)
 	 * Do render_type first so on read, we can make determination of
 	 * what else to read in
 	 */
-	nd_write_byte(underlying_value(obj.render_type));
-	nd_write_byte(obj.type);
+	nd_write_byte(underlying_value(obj.render_type), obj.type);
 	if (obj.render_type == render_type::RT_NONE && obj.type != object_type::OBJ_CAMERA)
 		return;
 
-	nd_write_byte(obj.id);
-	nd_write_byte(obj.flags);
-	shortsig = nd_get_object_signature(objp);
-	nd_write_short(shortsig);
+	nd_write_byte(obj.id, obj.flags);
+	nd_write_short(nd_get_object_signature(objp));
 	nd_write_shortpos(obj);
 
 	if (obj.type != object_type::OBJ_HOSTAGE && obj.type != object_type::OBJ_ROBOT && obj.type != object_type::OBJ_PLAYER && obj.type != object_type::OBJ_POWERUP && obj.type != object_type::OBJ_CLUTTER)
 	{
-		nd_write_byte(static_cast<uint8_t>(obj.control_source));
-		nd_write_byte(static_cast<uint8_t>(obj.movement_source));
+		nd_write_byte(underlying_value(obj.control_source), underlying_value(obj.movement_source));
 		nd_write_fix(obj.size);
 	}
 	if (obj.type == object_type::OBJ_POWERUP)
-		nd_write_byte(static_cast<uint8_t>(obj.movement_source));
+		nd_write_byte(underlying_value(obj.movement_source));
 
 	nd_write_vector(obj.pos);
 
 	if (obj.type == object_type::OBJ_WEAPON && obj.render_type == render_type::RT_WEAPON_VCLIP)
 		nd_write_fix(obj.lifeleft);
 	else {
-		life = static_cast<int>(obj.lifeleft);
+		life = obj.lifeleft;
 		life = life >> 12;
 		if (life > 255)
 			life = 255;
-		nd_write_byte(static_cast<uint8_t>(life));
+		nd_write_byte(life);
 	}
 
 	if (obj.type == object_type::OBJ_ROBOT) {
@@ -979,8 +938,7 @@ static void nd_write_object(const vcobjptridx_t objp)
 		case render_type::RT_MORPH:
 		case render_type::RT_POLYOBJ: {
 		if ((obj.type != object_type::OBJ_ROBOT) && (obj.type != object_type::OBJ_PLAYER) && (obj.type != object_type::OBJ_CLUTTER)) {
-			nd_write_int(underlying_value(obj.rtype.pobj_info.model_num.dsx));
-			nd_write_int(obj.rtype.pobj_info.subobj_flags);
+			nd_write_int(underlying_value(obj.rtype.pobj_info.model_num.dsx), obj.rtype.pobj_info.subobj_flags);
 		}
 
 		if ((obj.type != object_type::OBJ_PLAYER) && (obj.type != object_type::OBJ_DEBRIS))
