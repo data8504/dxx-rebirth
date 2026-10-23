@@ -557,6 +557,10 @@ static void nd_write_value(const std::integral auto value)
 	else static_assert(sizeof(value) <= 4);
 }
 
+static void nd_read_value(segnum_t &value) { nd_read_segnum16(value); }
+static void nd_write_value(segnum_t value) { nd_write_short(value); }
+static void nd_read_value(vms_vector &value) { nd_read_vector(value); }
+static void nd_write_value(const vms_vector &value) { nd_write_vector(value); }
 
 template <std::size_t N>
 static void nd_read_value(char (&value)[N]) { nd_read_string(value); }
@@ -1988,6 +1992,26 @@ static void newdemo_pop_ctrlcen_triggers()
 }
 
 namespace dsx {
+class demo_event_reader
+{
+	bool rewrite;
+	int &done;
+
+public:
+	demo_event_reader(const bool rewrite, int &done) : rewrite(rewrite), done(done) {}
+
+	// Rewrite consumes the payload here; gameplay runs only during playback.
+	bool read_for_playback(auto &...fields) const
+	{
+		if (!nd_read_fields(rewrite, fields...))
+		{
+			done = -1;
+			return false;
+		}
+		return !rewrite;
+	}
+};
+
 static int newdemo_read_frame_information(int rewrite)
 {
 	auto &LevelUniqueControlCenterState = LevelUniqueObjectState.ControlCenterState;
@@ -1999,6 +2023,7 @@ static int newdemo_read_frame_information(int rewrite)
 	sbyte c;
 
 	done = 0;
+	demo_event_reader event{rewrite != 0, done};
 
 	if (Newdemo_vcr_state != ND_STATE_PAUSED)
 		for (unique_segment &useg : vmsegptr)
@@ -2038,8 +2063,7 @@ static int newdemo_read_frame_information(int rewrite)
 			{
 				nd_write_short(last_frame_length);
 				nd_record_v_framebytes_written = 3;
-				nd_write_int(nd_playback_v_framecount);
-				nd_write_int(nd_recorded_time);
+				nd_write_int(nd_playback_v_framecount, nd_recorded_time);
 				break;
 			}
 			if (Newdemo_vcr_state == ND_STATE_PLAYBACK)
@@ -2145,79 +2169,31 @@ static int newdemo_read_frame_information(int rewrite)
 		}
 			break;
 
-		case ND_EVENT_SOUND:
-			{
-				int soundno;
-			nd_read_int(&soundno);
-			if (nd_playback_v_bad_read) {done = -1; break; }
-			if (rewrite)
-			{
-				nd_write_int(soundno);
+		case ND_EVENT_SOUND: {
+			int soundno;
+			if (!event.read_for_playback(soundno))
 				break;
-			}
 			if (Newdemo_vcr_state == ND_STATE_PLAYBACK)
 				digi_play_sample(static_cast<sound_effect>(soundno), F1_0);
-			}
 			break;
+		}
 
 		case ND_EVENT_SOUND_3D:
-			{
-				int soundno;
-			nd_read_int(&soundno);
-			nd_read_int(&angle);
-			nd_read_int(&volume);
-			if (nd_playback_v_bad_read) { done = -1; break; }
-			if (rewrite)
-			{
-				nd_write_int(soundno);
-				nd_write_int(angle);
-				nd_write_int(volume);
+		case ND_EVENT_SOUND_3D_ONCE: {
+			int soundno;
+			if (!event.read_for_playback(soundno, angle, volume))
 				break;
-			}
 			if (Newdemo_vcr_state == ND_STATE_PLAYBACK)
 				digi_play_sample_3d(static_cast<sound_effect>(soundno), sound_pan{angle}, volume);
-			}
 			break;
-
-		case ND_EVENT_SOUND_3D_ONCE:
-			{
-				int soundno;
-			nd_read_int(&soundno);
-			nd_read_int(&angle);
-			nd_read_int(&volume);
-			if (nd_playback_v_bad_read) { done = -1; break; }
-			if (rewrite)
-			{
-				nd_write_int(soundno);
-				nd_write_int(angle);
-				nd_write_int(volume);
-				break;
-			}
-			if (Newdemo_vcr_state == ND_STATE_PLAYBACK)
-				digi_play_sample_3d(static_cast<sound_effect>(soundno), sound_pan{angle}, volume);
-			}
-			break;
+		}
 
 		case ND_EVENT_LINK_SOUND_TO_OBJ:
 			{
 				int soundno, max_volume, max_distance, loop_start, loop_end;
 				int signature;
-				nd_read_int( &soundno );
-				nd_read_int( &signature );
-				nd_read_int( &max_volume );
-				nd_read_int( &max_distance );
-				nd_read_int( &loop_start );
-				nd_read_int( &loop_end );
-				if (rewrite)
-				{
-					nd_write_int( soundno );
-					nd_write_int( signature );
-					nd_write_int( max_volume );
-					nd_write_int( max_distance );
-					nd_write_int( loop_start );
-					nd_write_int( loop_end );
+				if (!event.read_for_playback(soundno, signature, max_volume, max_distance, loop_start, loop_end))
 					break;
-				}
 				auto objnum = newdemo_find_object(object_signature_t{static_cast<uint16_t>(signature)});
 				if ( objnum != object_none && Newdemo_vcr_state == ND_STATE_PLAYBACK)  {   //  @mk, 2/22/96, John told me to.
 					digi_link_sound_to_object3(static_cast<sound_effect>(soundno), objnum, 1, max_volume, sound_stack::allow_stacking, vm_distance{max_distance}, loop_start, loop_end);
@@ -2228,12 +2204,8 @@ static int newdemo_read_frame_information(int rewrite)
 		case ND_EVENT_KILL_SOUND_TO_OBJ:
 			{
 				int signature;
-				nd_read_int( &signature );
-				if (rewrite)
-				{
-					nd_write_int( signature );
+				if (!event.read_for_playback(signature))
 					break;
-				}
 				auto objnum = newdemo_find_object(object_signature_t{static_cast<uint16_t>(signature)});
 				if ( objnum != object_none && Newdemo_vcr_state == ND_STATE_PLAYBACK)  {   //  @mk, 2/22/96, John told me to.
 					digi_kill_sound_linked_to_object(objnum);
@@ -2343,27 +2315,14 @@ static int newdemo_read_frame_information(int rewrite)
 		case ND_EVENT_HOSTAGE_RESCUED: {
 			int hostage_number;
 
-			nd_read_int(&hostage_number);
-			if (nd_playback_v_bad_read) { done = -1; break; }
-			if (rewrite)
-			{
-				nd_write_int(hostage_number);
+			if (!event.read_for_playback(hostage_number))
 				break;
-			}
 			if (Newdemo_vcr_state != ND_STATE_PAUSED)
 				hostage_rescue();
 			break;
 		}
 
 		case ND_EVENT_MORPH_FRAME: {
-#if 0
-			morph_data *md;
-
-			md = &morph_objects[0];
-			if (newdemo_read( md->morph_vecs, sizeof(md->morph_vecs), 1 )!=1) { done=-1; break; }
-			if (newdemo_read( md->submodel_active, sizeof(md->submodel_active), 1 )!=1) { done=-1; break; }
-			if (newdemo_read( md->submodel_startpoints, sizeof(md->submodel_startpoints), 1 )!=1) { done=-1; break; }
-#endif
 			const auto &&obj = obj_allocate(LevelUniqueObjectState);
 			if (obj==object_none)
 				break;
@@ -2376,10 +2335,8 @@ static int newdemo_read_frame_information(int rewrite)
 			}
 			obj->render_type = render_type::RT_POLYOBJ;
 			if (Newdemo_vcr_state != ND_STATE_PAUSED) {
-				if (Newdemo_vcr_state != ND_STATE_PAUSED) {
-					auto segnum = obj->segnum;
-					obj_link_unchecked(Objects.vmptr, obj, Segments.vmptridx(segnum));
-				}
+				auto segnum = obj->segnum;
+				obj_link_unchecked(Objects.vmptr, obj, Segments.vmptridx(segnum));
 			}
 			break;
 		}
@@ -2424,13 +2381,8 @@ static int newdemo_read_frame_information(int rewrite)
 		case ND_EVENT_HUD_MESSAGE: {
 			char hud_msg[60];
 
-			nd_read_string(hud_msg);
-			if (nd_playback_v_bad_read) { done = -1; break; }
-			if (rewrite)
-			{
-				nd_write_string(&(hud_msg[0]));
+			if (!event.read_for_playback(hud_msg))
 				break;
-			}
 			if (Newdemo_vcr_state != ND_STATE_PAUSED)
 				HUD_init_message_literal( HM_DEFAULT, hud_msg );
 			break;
@@ -2455,17 +2407,8 @@ static int newdemo_read_frame_information(int rewrite)
 		case ND_EVENT_PALETTE_EFFECT: {
 			short r, g, b;
 
-			nd_read_short(&r);
-			nd_read_short(&g);
-			nd_read_short(&b);
-			if (nd_playback_v_bad_read) { done = -1; break; }
-			if (rewrite)
-			{
-				nd_write_short(r);
-				nd_write_short(g);
-				nd_write_short(b);
+			if (!event.read_for_playback(r, g, b))
 				break;
-			}
 			PALETTE_FLASH_SET(r,g,b);
 			break;
 		}
@@ -2671,16 +2614,8 @@ static int newdemo_read_frame_information(int rewrite)
 			sbyte side;
 			vms_vector pnt;
 
-			nd_read_segnum16(segnum);
-			nd_read_byte(&side);
-			nd_read_vector(pnt);
-			if (rewrite)
-			{
-				nd_write_short(segnum);
-				nd_write_byte(side);
-				nd_write_vector(pnt);
+			if (!event.read_for_playback(segnum, side, pnt))
 				break;
-			}
 			if (Newdemo_vcr_state != ND_STATE_PAUSED)
 			{
 #if DXX_BUILD_DESCENT == 1
@@ -2692,7 +2627,7 @@ static int newdemo_read_frame_information(int rewrite)
 			//laser is, so create a laser whose parent is the player
 				laser_parent dummy;
 				dummy.parent_type = object_type::OBJ_PLAYER;
-				dummy.parent_num = Player_num;
+				dummy.parent_num = static_cast<objnum_t>(Player_num);
 				check_effect_blowup(LevelSharedDestructibleLightState, Vclip, vmsegptridx(segnum), static_cast<sidenum_t>(side), pnt, dummy, 0, 0);
 #endif
 			}
@@ -2702,12 +2637,8 @@ static int newdemo_read_frame_information(int rewrite)
 		case ND_EVENT_HOMING_DISTANCE: {
 			short distance;
 
-			nd_read_short(&distance);
-			if (rewrite)
-			{
-				nd_write_short(distance);
+			if (!event.read_for_playback(distance))
 				break;
-			}
 			get_local_plrobj().ctype.player_info.homing_object_dist = i2f(distance << 16);
 			break;
 		}
@@ -2758,20 +2689,8 @@ static int newdemo_read_frame_information(int rewrite)
 			uint16_t tmap;
 			uint8_t side, cside;
 
-			nd_read_segnum16(seg);
-			nd_read_byte(&side);
-			nd_read_segnum16(cseg);
-			nd_read_byte(&cside);
-			nd_read_short( &tmap );
-			if (rewrite)
-			{
-				nd_write_short(seg);
-				nd_write_byte(side);
-				nd_write_short(cseg);
-				nd_write_byte(cside);
-				nd_write_short(tmap);
+			if (!event.read_for_playback(seg, side, cseg, cside, tmap))
 				break;
-			}
 			if ((Newdemo_vcr_state != ND_STATE_PAUSED) && (Newdemo_vcr_state != ND_STATE_REWINDING) && (Newdemo_vcr_state != ND_STATE_ONEFRAMEBACKWARD))
 				vmsegptr(seg)->unique_segment::sides[(sidenum_t{side})].tmap_num = vmsegptr(cseg)->unique_segment::sides[(sidenum_t{cside})].tmap_num = texture1_value{tmap};
 			break;
@@ -2782,20 +2701,8 @@ static int newdemo_read_frame_information(int rewrite)
 			uint16_t tmap;
 			uint8_t side, cside;
 
-			nd_read_segnum16(seg);
-			nd_read_byte(&side);
-			nd_read_segnum16(cseg);
-			nd_read_byte(&cside);
-			nd_read_short( &tmap );
-			if (rewrite)
-			{
-				nd_write_short(seg);
-				nd_write_byte(side);
-				nd_write_short(cseg);
-				nd_write_byte(cside);
-				nd_write_short(tmap);
+			if (!event.read_for_playback(seg, side, cseg, cside, tmap))
 				break;
-			}
 			if ((Newdemo_vcr_state != ND_STATE_PAUSED) && (Newdemo_vcr_state != ND_STATE_REWINDING) && (Newdemo_vcr_state != ND_STATE_ONEFRAMEBACKWARD)) {
 				unique_segment &s0 = *vmsegptr(seg);
 				auto &tmap_num2 = s0.sides[(sidenum_t{side})].tmap_num2;
