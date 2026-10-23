@@ -75,7 +75,7 @@ enum class sidenum_t : uint8_t;
 enum class sidemask_t : uint8_t;
 
 [[nodiscard]]
-std::optional<sidenum_t> build_sidenum_from_untrusted(uint8_t untrusted);
+std::optional<sidenum_t> build_sidenum_from_untrusted(int32_t untrusted);
 constexpr constant_xrange<sidenum_t{0}, sidenum_t{6}> MAX_SIDES_PER_SEGMENT{};
 constexpr std::integral_constant<sidenum_t, MAX_SIDES_PER_SEGMENT.value> side_none{};
 
