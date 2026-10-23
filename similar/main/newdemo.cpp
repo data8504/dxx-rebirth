@@ -2241,16 +2241,18 @@ static int newdemo_read_frame_information(int rewrite)
 				nd_write_int(player);
 				break;
 			}
+			const auto side_num = build_sidenum_from_untrusted(side);
+			if (!side_num)
+				break;
 			if (Newdemo_vcr_state != ND_STATE_PAUSED)
 			{
 				auto &player_info = ConsoleObject->ctype.player_info;
-				wall_hit_process(player_info.powerup_flags, vmsegptridx(segnum), static_cast<sidenum_t>(side), damage, player, vmobjptr(ConsoleObject));
+				wall_hit_process(player_info.powerup_flags, vmsegptridx(segnum), *side_num, damage, player, vmobjptr(ConsoleObject));
 			}
 			break;
 		}
 
-		case ND_EVENT_TRIGGER:
-		{
+		case ND_EVENT_TRIGGER: {
 			int iside;
 			segnum_t segnum;
 			objnum_t objnum;
@@ -2274,50 +2276,48 @@ static int newdemo_read_frame_information(int rewrite)
 #endif
 			}
 
-                        const auto &&segp = vmsegptridx(segnum);
-						const auto side = static_cast<sidenum_t>(iside);
-                        /* Demo recording is buggy.  Descent records
-                            * ND_EVENT_TRIGGER for every segment transition, even
-                            * if there is no wall.
-							*
-							* Likewise, ND_EVENT_TRIGGER can be recorded
-							* when the wall is valid, but there is no
-							* trigger on the wall.
-                            */
-						auto &sside = segp->shared_segment::sides[side];
-						const auto wall_num = sside.wall_num;
-                        if (wall_num != wall_none)
-                        {
+			const auto side_num = build_sidenum_from_untrusted(iside);
+			if (!side_num)
+			{
+				// The side also determines whether secret-exit metadata follows.
+				nd_playback_v_bad_read = -1;
+				done = -1;
+				break;
+			}
+			const auto side = *side_num;
+			const auto &&segp = vmsegptridx(segnum);
+			// Recording emits triggers for transitions with no wall or trigger.
+			const auto wall_num = segp->shared_segment::sides[side].wall_num;
+			if (wall_num == wall_none)
+				break;
 #if DXX_BUILD_DESCENT == 2
-							auto &w = *vcwallptr(wall_num);
-							auto &Triggers = LevelUniqueWallSubsystemState.Triggers;
-							auto &vctrgptr = Triggers.vcptr;
-							if (w.trigger != trigger_none && vctrgptr(w.trigger)->type == trigger_action::secret_exit)
-							{
-                                        int truth;
-
-                                        nd_read_byte(&c);
-                                        Assert(c == ND_EVENT_SECRET_THINGY);
-                                        nd_read_int(&truth);
-                                        if (Newdemo_vcr_state == ND_STATE_PAUSED)
-                                                break;
-                                        if (rewrite)
-                                        {
-                                                nd_write_byte(c);
-                                                nd_write_int(truth);
-                                                break;
-                                        }
-                                        if (!truth)
-											check_trigger(segp, side, plrobj, vmobjptridx(objnum), shot);
-                                } else if (!rewrite)
+			auto &w = *vcwallptr(wall_num);
+			auto &Triggers = LevelUniqueWallSubsystemState.Triggers;
+			auto &vctrgptr = Triggers.vcptr;
+			if (w.trigger != trigger_none && vctrgptr(w.trigger)->type == trigger_action::secret_exit)
+			{
+				int truth;
+				nd_read_byte(&c);
+				Assert(c == ND_EVENT_SECRET_THINGY);
+				nd_read_int(&truth);
+				if (Newdemo_vcr_state == ND_STATE_PAUSED)
+					break;
+				if (rewrite)
+				{
+					nd_write_byte(c);
+					nd_write_int(truth);
+					break;
+				}
+				if (truth)
+					break;
+			}
+			else if (rewrite)
+				break;
 #endif
-                                {
-                                        if (Newdemo_vcr_state != ND_STATE_PAUSED)
-											check_trigger(segp, side, plrobj, vmobjptridx(objnum), shot);
-                                }
-                        }
-		}
+			if (Newdemo_vcr_state != ND_STATE_PAUSED)
+				check_trigger(segp, side, plrobj, vmobjptridx(objnum), shot);
 			break;
+		}
 
 		case ND_EVENT_HOSTAGE_RESCUED: {
 			int hostage_number;
@@ -2583,10 +2583,13 @@ static int newdemo_read_frame_information(int rewrite)
 
 			if (!event.read_for_playback(segnum, side, pnt))
 				break;
+			const auto side_num = build_sidenum_from_untrusted(side);
+			if (!side_num)
+				break;
 			if (Newdemo_vcr_state != ND_STATE_PAUSED)
 			{
 #if DXX_BUILD_DESCENT == 1
-				check_effect_blowup(LevelSharedDestructibleLightState, Vclip, vmsegptridx(segnum), static_cast<sidenum_t>(side), pnt, nullptr, 0, 0);
+				check_effect_blowup(LevelSharedDestructibleLightState, Vclip, vmsegptridx(segnum), *side_num, pnt, nullptr, 0, 0);
 #elif DXX_BUILD_DESCENT == 2
 				auto &LevelSharedDestructibleLightState = LevelSharedSegmentState.DestructibleLights;
 			//create a dummy object which will be the weapon that hits
@@ -2595,7 +2598,7 @@ static int newdemo_read_frame_information(int rewrite)
 				laser_parent dummy;
 				dummy.parent_type = object_type::OBJ_PLAYER;
 				dummy.parent_num = static_cast<objnum_t>(Player_num);
-				check_effect_blowup(LevelSharedDestructibleLightState, Vclip, vmsegptridx(segnum), static_cast<sidenum_t>(side), pnt, dummy, 0, 0);
+				check_effect_blowup(LevelSharedDestructibleLightState, Vclip, vmsegptridx(segnum), *side_num, pnt, dummy, 0, 0);
 #endif
 			}
 			break;
@@ -2872,10 +2875,13 @@ static int newdemo_read_frame_information(int rewrite)
 
 			if (!event.read_for_playback(segnum, iside))
 				break;
+			const auto side_num = build_sidenum_from_untrusted(iside);
+			if (!side_num)
+				break;
 			if (playing_backward()) {
 				const auto &&segp = vmsegptridx(segnum);
 				const shared_segment &sseg = segp;
-				const auto side = static_cast<sidenum_t>(iside);
+				const auto side = *side_num;
 				const auto &&csegp = vmsegptr(sseg.children[side]);
 				const auto &&cside = find_connect_side(segp, csegp);
 				const auto anim_num = vmwallptr(sseg.sides[side].wall_num)->clip_num;
