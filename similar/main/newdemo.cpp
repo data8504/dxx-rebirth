@@ -27,8 +27,10 @@ COPYRIGHT 1993-1999 PARALLAX SOFTWARE CORPORATION.  ALL RIGHTS RESERVED.
 #include <array>
 #include <bit>
 #include <concepts>
+#include <cstddef>
 #include <cstdlib>
 #include <ctime>
+#include <iterator>
 #include <limits>
 #include <optional>
 #include <stdio.h>
@@ -2212,22 +2214,22 @@ static int newdemo_read_frame_information(int rewrite)
 
 				obj_link_unchecked(Objects.vmptr, obj, Segments.vmptridx(segnum));
 				if (obj->type == object_type::OBJ_PLAYER && +(Newdemo_game_mode & GM_MULTI)) {
-					unsigned player;
-
-					if (+(Newdemo_game_mode & GM_TEAM))
-						player = static_cast<unsigned>(multi_get_team_from_player(Netgame, get_player_id(obj)));
-					else
-						player = get_player_id(obj);
-					if (player == 0)
+					const auto texture_set = +(Newdemo_game_mode & GM_TEAM)
+						? underlying_value(multi_get_team_from_player(Netgame, get_player_id(obj))) : obj->id;
+					if (texture_set == 0)
 						break;
-					player--;
+					const auto texture_slot = texture_set - 1;
+					auto &textures = *std::next(multi_player_textures.begin(), texture_slot);
 
 					for (unsigned i = 0; i < Polygon_models[obj->rtype.pobj_info.model_num.dsx].n_textures; ++i)
-						multi_player_textures[player][i] = ObjBitmaps[ObjBitmapPtrs[Polygon_models[obj->rtype.pobj_info.model_num.dsx].first_texture+i]];
+						textures[i] = ObjBitmaps[ObjBitmapPtrs[Polygon_models[obj->rtype.pobj_info.model_num.dsx].first_texture+i]];
 
-					multi_player_textures[player][4] = ObjBitmaps[ObjBitmapPtrs[static_cast<unsigned>(First_multi_bitmap_num) + player * 2]];
-					multi_player_textures[player][5] = ObjBitmaps[ObjBitmapPtrs[static_cast<unsigned>(First_multi_bitmap_num) + player * 2+1]];
-					obj->rtype.pobj_info.alt_textures = static_cast<uint8_t>(player + 1);
+					std::ptrdiff_t color_offset = First_multi_bitmap_num;
+					color_offset += texture_slot * 2;
+					const auto colors = std::next(ObjBitmapPtrs.begin(), color_offset);
+					textures[4] = ObjBitmaps[colors[0]];
+					textures[5] = ObjBitmaps[colors[1]];
+					obj->rtype.pobj_info.alt_textures = texture_set;
 				}
 			}
 		}
