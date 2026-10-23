@@ -2009,6 +2009,16 @@ public:
 	}
 };
 
+static bool playing_forward()
+{
+	return (Newdemo_vcr_state == ND_STATE_PLAYBACK) || (Newdemo_vcr_state == ND_STATE_FASTFORWARD) || (Newdemo_vcr_state == ND_STATE_ONEFRAMEFORWARD);
+}
+
+static bool playing_backward()
+{
+	return (Newdemo_vcr_state == ND_STATE_REWINDING) || (Newdemo_vcr_state == ND_STATE_ONEFRAMEBACKWARD);
+}
+
 static int newdemo_read_frame_information(int rewrite)
 {
 	auto &LevelUniqueControlCenterState = LevelUniqueObjectState.ControlCenterState;
@@ -2386,21 +2396,14 @@ static int newdemo_read_frame_information(int rewrite)
 			}
 #if DXX_BUILD_DESCENT == 2
 		case ND_EVENT_START_GUIDED:
-			if ((Newdemo_vcr_state == ND_STATE_PLAYBACK) || (Newdemo_vcr_state == ND_STATE_FASTFORWARD) || (Newdemo_vcr_state == ND_STATE_ONEFRAMEFORWARD)) {
-				nd_playback_v_guided = 1;
-			} else if ((Newdemo_vcr_state == ND_STATE_REWINDING) || (Newdemo_vcr_state == ND_STATE_ONEFRAMEBACKWARD)) {
-				nd_playback_v_guided = 0;
-			}
-			break;
 		case ND_EVENT_END_GUIDED:
-			if ((Newdemo_vcr_state == ND_STATE_REWINDING) || (Newdemo_vcr_state == ND_STATE_ONEFRAMEBACKWARD)) {
-				nd_playback_v_guided = 1;
-			} else if ((Newdemo_vcr_state == ND_STATE_PLAYBACK) || (Newdemo_vcr_state == ND_STATE_FASTFORWARD) || (Newdemo_vcr_state == ND_STATE_ONEFRAMEFORWARD)) {
-				nd_playback_v_guided = 0;
-			}
+			if (playing_forward())
+				nd_playback_v_guided = c == ND_EVENT_START_GUIDED;
+			else if (playing_backward())
+				nd_playback_v_guided = c == ND_EVENT_END_GUIDED;
 			break;
-#endif
 
+#endif
 		case ND_EVENT_PALETTE_EFFECT: {
 			short r, g, b;
 
@@ -2412,7 +2415,7 @@ static int newdemo_read_frame_information(int rewrite)
 
 		case ND_EVENT_PLAYER_ENERGY: {
 			ubyte energy;
-			ubyte old_energy;
+			ubyte old_energy{UINT8_MAX};
 
 			if (!shareware)
 			nd_read_byte(&old_energy);
@@ -2421,8 +2424,7 @@ static int newdemo_read_frame_information(int rewrite)
 			if (nd_playback_v_bad_read) {done = -1; break; }
 			if (rewrite)
 			{
-				nd_write_byte(old_energy);
-				nd_write_byte(energy);
+				nd_write_byte(old_energy, energy);
 				break;
 			}
 			auto &player_info = get_local_plrobj().ctype.player_info;
@@ -2430,9 +2432,9 @@ static int newdemo_read_frame_information(int rewrite)
 				player_info.energy = i2f(energy);
 			else
 			{
-			if ((Newdemo_vcr_state == ND_STATE_PLAYBACK) || (Newdemo_vcr_state == ND_STATE_FASTFORWARD) || (Newdemo_vcr_state == ND_STATE_ONEFRAMEFORWARD)) {
+			if (playing_forward()) {
 				player_info.energy = i2f(energy);
-			} else if ((Newdemo_vcr_state == ND_STATE_REWINDING) || (Newdemo_vcr_state == ND_STATE_ONEFRAMEBACKWARD)) {
+			} else if (playing_backward()) {
 				if (old_energy != 255)
 					player_info.energy = i2f(old_energy);
 			}
@@ -2445,19 +2447,12 @@ static int newdemo_read_frame_information(int rewrite)
 			ubyte afterburner;
 			ubyte old_afterburner;
 
-			nd_read_byte(&old_afterburner);
-			nd_read_byte(&afterburner);
-			if (nd_playback_v_bad_read) {done = -1; break; }
-			if (rewrite)
-			{
-				nd_write_byte(old_afterburner);
-				nd_write_byte(afterburner);
+			if (!event.read_for_playback(old_afterburner, afterburner))
 				break;
-			}
-			if ((Newdemo_vcr_state == ND_STATE_PLAYBACK) || (Newdemo_vcr_state == ND_STATE_FASTFORWARD) || (Newdemo_vcr_state == ND_STATE_ONEFRAMEFORWARD)) {
+			if (playing_forward()) {
 				Afterburner_charge = afterburner<<9;
 // 				if (Afterburner_charge < 0) Afterburner_charge=f1_0;
-			} else if ((Newdemo_vcr_state == ND_STATE_REWINDING) || (Newdemo_vcr_state == ND_STATE_ONEFRAMEBACKWARD)) {
+			} else if (playing_backward()) {
 				if (old_afterburner != 255)
 					Afterburner_charge = old_afterburner<<9;
 			}
@@ -2467,7 +2462,7 @@ static int newdemo_read_frame_information(int rewrite)
 
 		case ND_EVENT_PLAYER_SHIELD: {
 			ubyte shield;
-			ubyte old_shield;
+			ubyte old_shield{UINT8_MAX};
 
 			if (!shareware)
 			nd_read_byte(&old_shield);
@@ -2475,17 +2470,16 @@ static int newdemo_read_frame_information(int rewrite)
 			if (nd_playback_v_bad_read) {done = -1; break; }
 			if (rewrite)
 			{
-				nd_write_byte(old_shield);
-				nd_write_byte(shield);
+				nd_write_byte(old_shield, shield);
 				break;
 			}
 			if (shareware)
 				get_local_plrobj().shields = i2f(shield);
 			else
 			{
-			if ((Newdemo_vcr_state == ND_STATE_PLAYBACK) || (Newdemo_vcr_state == ND_STATE_FASTFORWARD) || (Newdemo_vcr_state == ND_STATE_ONEFRAMEFORWARD)) {
+			if (playing_forward()) {
 				get_local_plrobj().shields = i2f(shield);
-			} else if ((Newdemo_vcr_state == ND_STATE_REWINDING) || (Newdemo_vcr_state == ND_STATE_ONEFRAMEBACKWARD)) {
+			} else if (playing_backward()) {
 				if (old_shield != 255)
 					get_local_plrobj().shields = i2f(old_shield);
 			}
@@ -2494,17 +2488,12 @@ static int newdemo_read_frame_information(int rewrite)
 		}
 
 		case ND_EVENT_PLAYER_FLAGS: {
-			int recorded_player_flags;
-			nd_read_int(&recorded_player_flags);
-			if (nd_playback_v_bad_read) {done = -1; break; }
-			if (rewrite)
-			{
-				nd_write_int(recorded_player_flags);
+			uint32_t recorded_player_flags;
+			if (!event.read_for_playback(recorded_player_flags))
 				break;
-			}
 
-			const player_flags old_player_flags{static_cast<unsigned>(recorded_player_flags) >> 16};
-			const player_flags new_player_flags{static_cast<unsigned>(recorded_player_flags)};
+			const player_flags old_player_flags{recorded_player_flags >> 16};
+			const player_flags new_player_flags{recorded_player_flags};
 
 			const auto old_cloaked = old_player_flags & player_flag::cloaked;
 			const auto new_cloaked = new_player_flags & player_flag::cloaked;
@@ -2529,7 +2518,7 @@ static int newdemo_read_frame_information(int rewrite)
 						t = GameTime64 - (INVULNERABLE_TIME_MAX / 2);
 				}
 				player_info.powerup_flags = old_player_flags;
-			} else if ((Newdemo_vcr_state == ND_STATE_PLAYBACK) || (Newdemo_vcr_state == ND_STATE_FASTFORWARD) || (Newdemo_vcr_state == ND_STATE_ONEFRAMEFORWARD)) {
+			} else if (playing_forward()) {
 				auto &player_info = get_local_plrobj().ctype.player_info;
 				if (old_cloaked != new_cloaked)
 				{
@@ -2559,14 +2548,8 @@ static int newdemo_read_frame_information(int rewrite)
 		{
 			ubyte weapon_type, weapon_num;
 
-			nd_read_byte(&weapon_type);
-			nd_read_byte(&weapon_num);
-			if (rewrite)
-			{
-				nd_write_byte(weapon_type);
-				nd_write_byte(weapon_num);
+			if (!event.read_for_playback(weapon_type, weapon_num))
 				break;
-			}
 
 			auto &player_info = get_local_plrobj().ctype.player_info;
 			if (weapon_type == 0)
@@ -2581,23 +2564,15 @@ static int newdemo_read_frame_information(int rewrite)
 			ubyte weapon_type, weapon_num;
 			ubyte old_weapon;
 
-			nd_read_byte(&weapon_type);
-			nd_read_byte(&weapon_num);
-			nd_read_byte(&old_weapon);
-			if (rewrite)
-			{
-				nd_write_byte(weapon_type);
-				nd_write_byte(weapon_num);
-				nd_write_byte(old_weapon);
+			if (!event.read_for_playback(weapon_type, weapon_num, old_weapon))
 				break;
-			}
 			auto &player_info = get_local_plrobj().ctype.player_info;
-			if ((Newdemo_vcr_state == ND_STATE_PLAYBACK) || (Newdemo_vcr_state == ND_STATE_FASTFORWARD) || (Newdemo_vcr_state == ND_STATE_ONEFRAMEFORWARD)) {
+			if (playing_forward()) {
 				if (weapon_type == 0)
 					player_info.Primary_weapon = static_cast<primary_weapon_index>(weapon_num);
 				else
 					player_info.Secondary_weapon = static_cast<secondary_weapon_index>(weapon_num);
-			} else if ((Newdemo_vcr_state == ND_STATE_REWINDING) || (Newdemo_vcr_state == ND_STATE_ONEFRAMEBACKWARD)) {
+			} else if (playing_backward()) {
 				if (weapon_type == 0)
 					player_info.Primary_weapon = static_cast<primary_weapon_index>(old_weapon);
 				else
@@ -2641,10 +2616,11 @@ static int newdemo_read_frame_information(int rewrite)
 		}
 
 		case ND_EVENT_LETTERBOX:
-			if ((Newdemo_vcr_state == ND_STATE_PLAYBACK) || (Newdemo_vcr_state == ND_STATE_FASTFORWARD) || (Newdemo_vcr_state == ND_STATE_ONEFRAMEFORWARD)) {
-				nd_playback_v_dead = 1;
-			} else if ((Newdemo_vcr_state == ND_STATE_REWINDING) || (Newdemo_vcr_state == ND_STATE_ONEFRAMEBACKWARD))
-				nd_playback_v_dead = 0;
+		case ND_EVENT_RESTORE_COCKPIT:
+			if (playing_forward())
+				nd_playback_v_dead = c == ND_EVENT_LETTERBOX;
+			else if (playing_backward())
+				nd_playback_v_dead = c == ND_EVENT_RESTORE_COCKPIT;
 			break;
 
 #if DXX_BUILD_DESCENT == 2
@@ -2657,29 +2633,12 @@ static int newdemo_read_frame_information(int rewrite)
 		}
 #endif
 		case ND_EVENT_REARVIEW:
-			if ((Newdemo_vcr_state == ND_STATE_PLAYBACK) || (Newdemo_vcr_state == ND_STATE_FASTFORWARD) || (Newdemo_vcr_state == ND_STATE_ONEFRAMEFORWARD)) {
-				nd_playback_v_rear = 1;
-			} else if ((Newdemo_vcr_state == ND_STATE_REWINDING) || (Newdemo_vcr_state == ND_STATE_ONEFRAMEBACKWARD)) {
-				nd_playback_v_rear = 0;
-			}
-			break;
-
-		case ND_EVENT_RESTORE_COCKPIT:
-			if ((Newdemo_vcr_state == ND_STATE_REWINDING) || (Newdemo_vcr_state == ND_STATE_ONEFRAMEBACKWARD)) {
-				nd_playback_v_dead = 1;
-			} else if ((Newdemo_vcr_state == ND_STATE_PLAYBACK) || (Newdemo_vcr_state == ND_STATE_FASTFORWARD) || (Newdemo_vcr_state == ND_STATE_ONEFRAMEFORWARD))
-				nd_playback_v_dead = 0;
-			break;
-
-
 		case ND_EVENT_RESTORE_REARVIEW:
-			if ((Newdemo_vcr_state == ND_STATE_REWINDING) || (Newdemo_vcr_state == ND_STATE_ONEFRAMEBACKWARD)) {
-				nd_playback_v_rear= 1;
-			} else if ((Newdemo_vcr_state == ND_STATE_PLAYBACK) || (Newdemo_vcr_state == ND_STATE_FASTFORWARD) || (Newdemo_vcr_state == ND_STATE_ONEFRAMEFORWARD)) {
-				nd_playback_v_rear = 0;
-			}
+			if (playing_forward())
+				nd_playback_v_rear = c == ND_EVENT_REARVIEW;
+			else if (playing_backward())
+				nd_playback_v_rear = c == ND_EVENT_RESTORE_REARVIEW;
 			break;
-
 
 		case ND_EVENT_WALL_SET_TMAP_NUM1: {
 			segnum_t seg, cseg;
@@ -2905,16 +2864,12 @@ static int newdemo_read_frame_information(int rewrite)
 		case ND_EVENT_PLAYER_SCORE: {
 			int score;
 
-			nd_read_int(&score);
-			if (rewrite)
-			{
-				nd_write_int(score);
+			if (!event.read_for_playback(score))
 				break;
-			}
 			auto &player_info = get_local_plrobj().ctype.player_info;
-			if ((Newdemo_vcr_state == ND_STATE_REWINDING) || (Newdemo_vcr_state == ND_STATE_ONEFRAMEBACKWARD))
+			if (playing_backward())
 				player_info.mission.score -= score;
-			else if ((Newdemo_vcr_state == ND_STATE_PLAYBACK) || (Newdemo_vcr_state == ND_STATE_FASTFORWARD) || (Newdemo_vcr_state == ND_STATE_ONEFRAMEFORWARD))
+			else if (playing_forward())
 				player_info.mission.score += score;
 			break;
 		}
@@ -2923,20 +2878,14 @@ static int newdemo_read_frame_information(int rewrite)
 		case ND_EVENT_PRIMARY_AMMO: {
 			unsigned short old_ammo, new_ammo;
 
-			nd_read_short(&old_ammo);
-			nd_read_short(&new_ammo);
-			if (rewrite)
-			{
-				nd_write_short(old_ammo);
-				nd_write_short(new_ammo);
+			if (!event.read_for_playback(old_ammo, new_ammo))
 				break;
-			}
 
 			unsigned short value;
 			// NOTE: Used (Primary_weapon==GAUSS_INDEX?VULCAN_INDEX:Primary_weapon) because game needs VULCAN_INDEX updated to show Gauss ammo
-			if ((Newdemo_vcr_state == ND_STATE_REWINDING) || (Newdemo_vcr_state == ND_STATE_ONEFRAMEBACKWARD))
+			if (playing_backward())
 				value = old_ammo;
-			else if ((Newdemo_vcr_state == ND_STATE_PLAYBACK) || (Newdemo_vcr_state == ND_STATE_FASTFORWARD) || (Newdemo_vcr_state == ND_STATE_ONEFRAMEFORWARD))
+			else if (playing_forward())
 				value = new_ammo;
 			else
 				break;
@@ -2954,20 +2903,14 @@ static int newdemo_read_frame_information(int rewrite)
 		case ND_EVENT_SECONDARY_AMMO: {
 			short old_ammo, new_ammo;
 
-			nd_read_short(&old_ammo);
-			nd_read_short(&new_ammo);
-			if (rewrite)
-			{
-				nd_write_short(old_ammo);
-				nd_write_short(new_ammo);
+			if (!event.read_for_playback(old_ammo, new_ammo))
 				break;
-			}
 
 			auto &player_info = get_local_plrobj().ctype.player_info;
-			if ((Newdemo_vcr_state == ND_STATE_REWINDING) || (Newdemo_vcr_state == ND_STATE_ONEFRAMEBACKWARD))
-				player_info.secondary_ammo[player_info.Secondary_weapon] = old_ammo;
-			else if ((Newdemo_vcr_state == ND_STATE_PLAYBACK) || (Newdemo_vcr_state == ND_STATE_FASTFORWARD) || (Newdemo_vcr_state == ND_STATE_ONEFRAMEFORWARD))
-				player_info.secondary_ammo[player_info.Secondary_weapon] = new_ammo;
+			if (playing_backward())
+				player_info.secondary_ammo[player_info.Secondary_weapon] = static_cast<uint8_t>(old_ammo);
+			else if (playing_forward())
+				player_info.secondary_ammo[player_info.Secondary_weapon] = static_cast<uint8_t>(new_ammo);
 			break;
 		}
 
@@ -2975,26 +2918,20 @@ static int newdemo_read_frame_information(int rewrite)
 			segnum_t segnum;
 			uint8_t iside;
 
-			nd_read_segnum16(segnum);
-			nd_read_byte(&iside);
-			if (rewrite)
-			{
-				nd_write_short(segnum);
-				nd_write_byte(iside);
+			if (!event.read_for_playback(segnum, iside))
 				break;
-			}
-			if ((Newdemo_vcr_state == ND_STATE_REWINDING) || (Newdemo_vcr_state == ND_STATE_ONEFRAMEBACKWARD)) {
+			if (playing_backward()) {
 				const auto &&segp = vmsegptridx(segnum);
 				const shared_segment &sseg = segp;
 				const auto side = static_cast<sidenum_t>(iside);
 				const auto &&csegp = vmsegptr(sseg.children[side]);
 				const auto &&cside = find_connect_side(segp, csegp);
 				const auto anim_num = vmwallptr(sseg.sides[side].wall_num)->clip_num;
-				auto &wa = WallAnims[anim_num];
+				auto &wa = WallAnims.at(static_cast<std::size_t>(anim_num));
 				auto &seg0uside = segp->unique_segment::sides[side];
 				auto &seg1uside = csegp->unique_segment::sides[cside];
 				const auto next_tmap = wa.frames[0];
-				if (wa.flags & WCF_TMAP1)
+				if (wa.flags & int16_t{WCF_TMAP1})
 					seg0uside.tmap_num = seg1uside.tmap_num = texture1_value{next_tmap};
 				else
 					seg0uside.tmap_num2 = seg1uside.tmap_num2 = texture2_value{next_tmap};
@@ -3005,18 +2942,12 @@ static int newdemo_read_frame_information(int rewrite)
 		case ND_EVENT_LASER_LEVEL: {
 			uint8_t old_level, new_level;
 
-			nd_read_byte(&old_level);
-			nd_read_byte(&new_level);
-			if (rewrite)
-			{
-				nd_write_byte(old_level);
-				nd_write_byte(new_level);
+			if (!event.read_for_playback(old_level, new_level))
 				break;
-			}
 			auto &player_info = get_local_plrobj().ctype.player_info;
-			if ((Newdemo_vcr_state == ND_STATE_REWINDING) || (Newdemo_vcr_state == ND_STATE_ONEFRAMEBACKWARD)) {
+			if (playing_backward()) {
 				player_info.laser_level = laser_level{old_level};
-			} else if ((Newdemo_vcr_state == ND_STATE_PLAYBACK) || (Newdemo_vcr_state == ND_STATE_FASTFORWARD) || (Newdemo_vcr_state == ND_STATE_ONEFRAMEFORWARD)) {
+			} else if (playing_forward()) {
 				player_info.laser_level = laser_level{new_level};
 			}
 			break;
