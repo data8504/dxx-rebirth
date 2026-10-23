@@ -227,7 +227,7 @@ static fix nd_record_v_player_afterburner = -1;
 #endif
 static int nd_record_v_player_energy = -1;
 static int nd_record_v_player_shields = -1;
-static uint nd_record_v_player_flags = -1;
+static uint nd_record_v_player_flags = ~0u;
 static int nd_record_v_weapon_type = -1;
 static int nd_record_v_weapon_num = -1;
 static fix nd_record_v_homing_distance = -1;
@@ -1030,6 +1030,22 @@ static void nd_rbe()
 	newdemo_write(buf, 1, sizeof(buf));
 }
 
+// Homogeneous event payloads state their legacy wire width once. Recording
+// retains the same low-bit conversion as the individual field writers.
+template <std::unsigned_integral Wire>
+static void nd_record_scalar_event(const uint8_t event, const auto ...fields)
+{
+	pause_game_world_time pause;
+	nd_write_byte(event);
+	(demo_write_values<Wire>(fields), ...);
+}
+
+static void nd_record_event(const uint8_t event)
+{
+	pause_game_world_time pause;
+	nd_write_byte(event);
+}
+
 namespace dsx {
 void newdemo_record_start_demo()
 {
@@ -1040,9 +1056,7 @@ void newdemo_record_start_demo()
 	nd_record_v_recordframe_last_time=GameTime64-REC_DELAY; // make sure first frame is recorded!
 
 	pause_game_world_time p;
-	nd_write_byte(ND_EVENT_START_DEMO);
-	nd_write_byte(DEMO_VERSION);
-	nd_write_byte(DEMO_GAME_TYPE);
+	nd_write_byte(ND_EVENT_START_DEMO, DEMO_VERSION, DEMO_GAME_TYPE);
 	nd_write_fix(0); // NOTE: This is supposed to write GameTime (in fix). Since our GameTime64 is fix64 and the demos do not NEED this time actually, just write 0.
 
 	nd_write_int(+(Game_mode & GM_MULTI) ? (underlying_value(Game_mode) | (Player_num << 16)) : underlying_value(Game_mode));
@@ -1054,17 +1068,16 @@ void newdemo_record_start_demo()
 	}
 
 	if (+(Game_mode & GM_MULTI)) {
-		nd_write_byte(static_cast<int8_t>(N_players));
+		nd_write_byte(N_players);
 		range_for (auto &i, partial_const_range(Players, N_players)) {
-			nd_write_string(static_cast<const char *>(i.callsign));
+			nd_write_string(i.callsign);
 			nd_write_byte(underlying_value(i.connected));
 
 			auto &pl_info = vcobjptr(i.objnum)->ctype.player_info;
 			if (+(Game_mode & GM_MULTI_COOP)) {
 				nd_write_int(pl_info.mission.score);
 			} else {
-				nd_write_short(pl_info.net_killed_total);
-				nd_write_short(pl_info.net_kills_total);
+				nd_write_short(pl_info.net_killed_total, pl_info.net_kills_total);
 			}
 		}
 	} else
@@ -1077,13 +1090,13 @@ void newdemo_record_start_demo()
 	nd_record_v_primary_ammo = -1;
 	nd_record_v_secondary_ammo = -1;
 
-	for (const uint8_t i : xrange(MAX_PRIMARY_WEAPONS))
-		nd_write_short(primary_weapon_index{i} == primary_weapon_index::vulcan ? player_info.vulcan_ammo : 0);
+	for (uint8_t i = 0; i < MAX_PRIMARY_WEAPONS; ++i)
+		nd_write_short(primary_weapon_index{i} == primary_weapon_index::vulcan ? player_info.vulcan_ammo : uint16_t{0});
 
 	range_for (auto &i, player_info.secondary_ammo)
 		nd_write_short(i);
 
-	nd_write_byte(static_cast<sbyte>(player_info.laser_level));
+	nd_write_byte(underlying_value(player_info.laser_level));
 
 //  Support for missions added here
 
@@ -1092,8 +1105,8 @@ void newdemo_record_start_demo()
 	nd_write_byte(nd_record_v_player_energy = static_cast<int8_t>(f2ir(player_info.energy)));
 	nd_write_byte(nd_record_v_player_shields = static_cast<int8_t>(f2ir(get_local_plrobj().shields)));
 	nd_write_int(nd_record_v_player_flags = +player_info.powerup_flags);        // be sure players flags are set
-	nd_write_byte(static_cast<int8_t>(static_cast<primary_weapon_index>(player_info.Primary_weapon)));
-	nd_write_byte(static_cast<int8_t>(static_cast<secondary_weapon_index>(player_info.Secondary_weapon)));
+	nd_write_byte(underlying_value(player_info.Primary_weapon.get_active()),
+		underlying_value(player_info.Secondary_weapon.get_active()));
 	nd_record_v_start_frame = nd_record_v_frame_number = 0;
 #if DXX_BUILD_DESCENT == 2
 	nd_record_v_player_afterburner = 0;
@@ -1191,7 +1204,7 @@ void newdemo_record_viewer_object(const vcobjptridx_t obj)
 	pause_game_world_time p;
 	nd_write_byte(ND_EVENT_VIEWER_OBJECT);
 #if DXX_BUILD_DESCENT == 2
-	nd_record_v_viewobjs[obj]=RenderingType+1;
+	nd_record_v_viewobjs[obj] = static_cast<int8_t>(RenderingType + 1);
 	nd_record_v_rendering[RenderingType]=1;
 	nd_write_byte(RenderingType);
 #endif
@@ -1201,18 +1214,12 @@ void newdemo_record_viewer_object(const vcobjptridx_t obj)
 
 void newdemo_record_sound(const sound_effect soundno)
 {
-	pause_game_world_time p;
-	nd_write_byte(ND_EVENT_SOUND);
-	nd_write_int( soundno );
+	nd_record_scalar_event<uint32_t>(ND_EVENT_SOUND, soundno);
 }
 
 void newdemo_record_sound_3d_once(const sound_effect soundno, const sound_pan angle, const int volume)
 {
-	pause_game_world_time p;
-	nd_write_byte( ND_EVENT_SOUND_3D_ONCE );
-	nd_write_int( soundno );
-	nd_write_int(static_cast<int>(angle));
-	nd_write_int( volume );
+	nd_record_scalar_event<uint32_t>(ND_EVENT_SOUND_3D_ONCE, soundno, angle, volume);
 }
 
 void newdemo_record_link_sound_to_object3(const sound_effect soundno, objnum_t objnum, fix max_volume, fix  max_distance, int loop_start, int loop_end)
@@ -1220,12 +1227,8 @@ void newdemo_record_link_sound_to_object3(const sound_effect soundno, objnum_t o
 	auto &Objects = LevelUniqueObjectState.Objects;
 	pause_game_world_time p;
 	nd_write_byte( ND_EVENT_LINK_SOUND_TO_OBJ );
-	nd_write_int( soundno );
-	nd_write_int(nd_get_object_signature(Objects.vcptridx(objnum)));
-	nd_write_int( max_volume );
-	nd_write_int( max_distance );
-	nd_write_int( loop_start );
-	nd_write_int( loop_end );
+	nd_write_int( soundno , nd_get_object_signature(Objects.vcptridx(objnum)),  max_volume ,  max_distance ,
+		 loop_start ,  loop_end );
 }
 
 namespace dsx {
@@ -1239,12 +1242,7 @@ void newdemo_record_kill_sound_linked_to_object(const vcobjptridx_t objp)
 
 void newdemo_record_wall_hit_process(const segnum_t segnum, const sidenum_t side, int damage, int playernum)
 {
-	pause_game_world_time p;
-	nd_write_byte( ND_EVENT_WALL_HIT_PROCESS );
-	nd_write_int( segnum );
-	nd_write_int(underlying_value(side));
-	nd_write_int( damage );
-	nd_write_int( playernum );
+	nd_record_scalar_event<uint32_t>(ND_EVENT_WALL_HIT_PROCESS, segnum, side, damage, playernum);
 }
 
 namespace dsx {
@@ -1262,19 +1260,12 @@ void newdemo_record_guided_end ()
 
 void newdemo_record_secret_exit_blown(int truth)
 {
-	pause_game_world_time p;
-	nd_write_byte( ND_EVENT_SECRET_THINGY );
-	nd_write_int( truth );
+	nd_record_scalar_event<uint32_t>(ND_EVENT_SECRET_THINGY, truth);
 }
 
 void newdemo_record_trigger(const vcsegidx_t segnum, const sidenum_t side, const objnum_t objnum, const unsigned shot)
 {
-	pause_game_world_time p;
-	nd_write_byte( ND_EVENT_TRIGGER );
-	nd_write_int( segnum );
-	nd_write_int(underlying_value(side));
-	nd_write_int( objnum );
-	nd_write_int(shot);
+	nd_record_scalar_event<uint32_t>(ND_EVENT_TRIGGER, segnum, side, objnum, shot);
 }
 #endif
 
@@ -1291,10 +1282,7 @@ void newdemo_record_morph_frame(const vcobjptridx_t obj)
 
 void newdemo_record_wall_toggle(segnum_t segnum, sidenum_t side)
 {
-	pause_game_world_time p;
-	nd_write_byte( ND_EVENT_WALL_TOGGLE );
-	nd_write_int( segnum );
-	nd_write_int(underlying_value(side));
+	nd_record_scalar_event<uint32_t>(ND_EVENT_WALL_TOGGLE, segnum, side);
 }
 
 void newdemo_record_control_center_destroyed()
@@ -1302,9 +1290,7 @@ void newdemo_record_control_center_destroyed()
 	auto &LevelUniqueControlCenterState = LevelUniqueObjectState.ControlCenterState;
 	if (!nd_record_v_recordframe)
 		return;
-	pause_game_world_time p;
-	nd_write_byte( ND_EVENT_CONTROL_CENTER_DESTROYED );
-	nd_write_int(LevelUniqueControlCenterState.Countdown_seconds_left);
+	nd_record_scalar_event<uint32_t>(ND_EVENT_CONTROL_CENTER_DESTROYED, LevelUniqueControlCenterState.Countdown_seconds_left);
 }
 
 void newdemo_record_hud_message(const char * message )
@@ -1318,11 +1304,7 @@ void newdemo_record_palette_effect(short r, short g, short b )
 {
 	if (!nd_record_v_recordframe)
 		return;
-	pause_game_world_time p;
-	nd_write_byte( ND_EVENT_PALETTE_EFFECT );
-	nd_write_short( r );
-	nd_write_short( g );
-	nd_write_short( b );
+	nd_record_scalar_event<uint16_t>(ND_EVENT_PALETTE_EFFECT, r, g, b);
 }
 
 void newdemo_record_player_energy(int energy)
@@ -1331,8 +1313,8 @@ void newdemo_record_player_energy(int energy)
 		return;
 	pause_game_world_time p;
 	nd_write_byte( ND_EVENT_PLAYER_ENERGY );
-	nd_write_byte(static_cast<int8_t>(std::exchange(nd_record_v_player_energy, energy)));
-	nd_write_byte(static_cast<int8_t>(energy));
+	nd_write_byte(std::exchange(nd_record_v_player_energy, energy));
+	nd_write_byte(energy);
 }
 
 namespace dsx {
@@ -1344,8 +1326,8 @@ void newdemo_record_player_afterburner(fix afterburner)
 		return;
 	pause_game_world_time p;
 	nd_write_byte( ND_EVENT_PLAYER_AFTERBURNER );
-	nd_write_byte(static_cast<int8_t>(std::exchange(nd_record_v_player_afterburner, afterburner) >> 9));
-	nd_write_byte(static_cast<int8_t>(afterburner >> 9));
+	nd_write_byte(std::exchange(nd_record_v_player_afterburner, afterburner) >> 9);
+	nd_write_byte(afterburner >> 9);
 }
 #endif
 
@@ -1357,8 +1339,8 @@ void newdemo_record_player_shields(int shield)
 		return;
 	pause_game_world_time p;
 	nd_write_byte( ND_EVENT_PLAYER_SHIELD );
-	nd_write_byte(static_cast<int8_t>(std::exchange(nd_record_v_player_shields, shield)));
-	nd_write_byte(static_cast<int8_t>(shield));
+	nd_write_byte(std::exchange(nd_record_v_player_shields, shield));
+	nd_write_byte(shield);
 }
 
 void newdemo_record_player_flags(uint flags)
@@ -1380,12 +1362,12 @@ static void newdemo_record_player_weapon(int weapon_num, int weapon_type)
 		return;
 	pause_game_world_time p;
 	nd_write_byte( ND_EVENT_PLAYER_WEAPON );
-	nd_write_byte(static_cast<int8_t>(nd_record_v_weapon_type = weapon_type));
-	nd_write_byte(static_cast<int8_t>(nd_record_v_weapon_num = weapon_num));
+	nd_write_byte(nd_record_v_weapon_type = weapon_type);
+	nd_write_byte(nd_record_v_weapon_num = weapon_num);
 	auto &player_info = get_local_plrobj().ctype.player_info;
 	nd_write_byte(weapon_type
-		? static_cast<int8_t>(static_cast<secondary_weapon_index>(player_info.Secondary_weapon))
-		: static_cast<int8_t>(static_cast<primary_weapon_index>(player_info.Primary_weapon))
+		? underlying_value(player_info.Secondary_weapon.get_active())
+		: underlying_value(player_info.Primary_weapon.get_active())
 	);
 }
 
@@ -1403,10 +1385,10 @@ void newdemo_record_player_weapon(const secondary_weapon_index weapon_num)
 
 void newdemo_record_effect_blowup(segnum_t segment, sidenum_t side, const vms_vector &pnt)
 {
-	pause_game_world_time p;
-	nd_write_byte (ND_EVENT_EFFECT_BLOWUP);
+	pause_game_world_time pause;
+	nd_write_byte(ND_EVENT_EFFECT_BLOWUP);
 	nd_write_short(segment);
-	nd_write_byte(static_cast<int8_t>(side));
+	nd_write_byte(underlying_value(side));
 	nd_write_vector(pnt);
 }
 
@@ -1416,86 +1398,73 @@ void newdemo_record_homing_distance(fix distance)
 		return;
 	pause_game_world_time p;
 	nd_write_byte(ND_EVENT_HOMING_DISTANCE);
-	nd_write_short(static_cast<short>((nd_record_v_homing_distance = distance) >> 16));
+	nd_write_short((nd_record_v_homing_distance = distance) >> 16);
 }
 
 void newdemo_record_letterbox(void)
 {
-	pause_game_world_time p;
-	nd_write_byte(ND_EVENT_LETTERBOX);
+	nd_record_event(ND_EVENT_LETTERBOX);
 }
 
 void newdemo_record_rearview(void)
 {
-	pause_game_world_time p;
-	nd_write_byte(ND_EVENT_REARVIEW);
+	nd_record_event(ND_EVENT_REARVIEW);
 }
 
 void newdemo_record_restore_cockpit(void)
 {
-	pause_game_world_time p;
-	nd_write_byte(ND_EVENT_RESTORE_COCKPIT);
+	nd_record_event(ND_EVENT_RESTORE_COCKPIT);
 }
 
 void newdemo_record_restore_rearview(void)
 {
-	pause_game_world_time p;
-	nd_write_byte(ND_EVENT_RESTORE_REARVIEW);
+	nd_record_event(ND_EVENT_RESTORE_REARVIEW);
 }
 
 namespace dsx {
 
 void newdemo_record_wall_set_tmap_num1(const vcsegidx_t seg, const sidenum_t side, const vcsegidx_t cseg, const sidenum_t cside, const texture1_value tmap)
 {
-	pause_game_world_time p;
+	pause_game_world_time pause;
 	nd_write_byte(ND_EVENT_WALL_SET_TMAP_NUM1);
 	nd_write_short(seg);
 	nd_write_byte(underlying_value(side));
 	nd_write_short(cseg);
 	nd_write_byte(underlying_value(cside));
-	nd_write_short(static_cast<uint16_t>(tmap));
+	nd_write_short(underlying_value(tmap));
 }
 
 void newdemo_record_wall_set_tmap_num2(const vcsegidx_t seg, const sidenum_t side, const vcsegidx_t cseg, const sidenum_t cside, const texture2_value tmap)
 {
-	pause_game_world_time p;
+	pause_game_world_time pause;
 	nd_write_byte(ND_EVENT_WALL_SET_TMAP_NUM2);
 	nd_write_short(seg);
 	nd_write_byte(underlying_value(side));
 	nd_write_short(cseg);
 	nd_write_byte(underlying_value(cside));
-	nd_write_short(static_cast<uint16_t>(tmap));
+	nd_write_short(underlying_value(tmap));
 }
 
 }
 
 void newdemo_record_multi_cloak(int pnum)
 {
-	pause_game_world_time p;
-	nd_write_byte(ND_EVENT_MULTI_CLOAK);
-	nd_write_byte(static_cast<int8_t>(pnum));
+	nd_record_scalar_event<uint8_t>(ND_EVENT_MULTI_CLOAK, pnum);
 }
 
 void newdemo_record_multi_decloak(int pnum)
 {
-	pause_game_world_time p;
-	nd_write_byte(ND_EVENT_MULTI_DECLOAK);
-	nd_write_byte(static_cast<int8_t>(pnum));
+	nd_record_scalar_event<uint8_t>(ND_EVENT_MULTI_DECLOAK, pnum);
 }
 
 void newdemo_record_multi_death(int pnum)
 {
-	pause_game_world_time p;
-	nd_write_byte(ND_EVENT_MULTI_DEATH);
-	nd_write_byte(static_cast<int8_t>(pnum));
+	nd_record_scalar_event<uint8_t>(ND_EVENT_MULTI_DEATH, pnum);
 }
 
 void newdemo_record_multi_kill(int pnum, sbyte kill)
 {
-	pause_game_world_time p;
-	nd_write_byte(ND_EVENT_MULTI_KILL);
-	nd_write_byte(static_cast<int8_t>(pnum));
-	nd_write_byte(kill);
+	nd_record_scalar_event<uint8_t>(ND_EVENT_MULTI_KILL, pnum, kill);
 }
 
 void newdemo_record_multi_connect(const unsigned pnum, const unsigned new_player, const char *const new_callsign)
@@ -1503,38 +1472,29 @@ void newdemo_record_multi_connect(const unsigned pnum, const unsigned new_player
 	auto &Objects = LevelUniqueObjectState.Objects;
 	auto &vcobjptr = Objects.vcptr;
 	pause_game_world_time p;
-	nd_write_byte(ND_EVENT_MULTI_CONNECT);
-	nd_write_byte(static_cast<int8_t>(pnum));
-	nd_write_byte(static_cast<int8_t>(new_player));
+	nd_write_byte(ND_EVENT_MULTI_CONNECT, pnum, new_player);
 	if (!new_player) {
 		auto &plr = *vcplayerptr(pnum);
-		nd_write_string(static_cast<const char *>(plr.callsign));
+		nd_write_string(plr.callsign);
 		auto &player_info = vcobjptr(plr.objnum)->ctype.player_info;
-		nd_write_int(player_info.net_killed_total);
-		nd_write_int(player_info.net_kills_total);
+		nd_write_int(player_info.net_killed_total, player_info.net_kills_total);
 	}
 	nd_write_string(new_callsign);
 }
 
 void newdemo_record_multi_reconnect(int pnum)
 {
-	pause_game_world_time p;
-	nd_write_byte(ND_EVENT_MULTI_RECONNECT);
-	nd_write_byte(static_cast<int8_t>(pnum));
+	nd_record_scalar_event<uint8_t>(ND_EVENT_MULTI_RECONNECT, pnum);
 }
 
 void newdemo_record_multi_disconnect(int pnum)
 {
-	pause_game_world_time p;
-	nd_write_byte(ND_EVENT_MULTI_DISCONNECT);
-	nd_write_byte(static_cast<int8_t>(pnum));
+	nd_record_scalar_event<uint8_t>(ND_EVENT_MULTI_DISCONNECT, pnum);
 }
 
 void newdemo_record_player_score(int score)
 {
-	pause_game_world_time p;
-	nd_write_byte(ND_EVENT_PLAYER_SCORE);
-	nd_write_int(score);
+	nd_record_scalar_event<uint32_t>(ND_EVENT_PLAYER_SCORE, score);
 }
 
 void newdemo_record_multi_score(const unsigned pnum, const int score)
@@ -1542,8 +1502,7 @@ void newdemo_record_multi_score(const unsigned pnum, const int score)
 	auto &Objects = LevelUniqueObjectState.Objects;
 	auto &vcobjptr = Objects.vcptr;
 	pause_game_world_time p;
-	nd_write_byte(ND_EVENT_MULTI_SCORE);
-	nd_write_byte(static_cast<int8_t>(pnum));
+	nd_write_byte(ND_EVENT_MULTI_SCORE, pnum);
 	nd_write_int(score - vcobjptr(vcplayerptr(pnum)->objnum)->ctype.player_info.mission.score);      // called before score is changed!!!!
 }
 
@@ -1553,8 +1512,8 @@ void newdemo_record_primary_ammo(int new_ammo)
 		return;
 	pause_game_world_time p;
 	nd_write_byte(ND_EVENT_PRIMARY_AMMO);
-	nd_write_short(nd_record_v_primary_ammo < 0 ? static_cast<short>(new_ammo) : static_cast<short>(nd_record_v_primary_ammo));
-	nd_write_short(static_cast<short>(nd_record_v_primary_ammo = new_ammo));
+	nd_write_short(nd_record_v_primary_ammo < 0 ? new_ammo : nd_record_v_primary_ammo);
+	nd_write_short(nd_record_v_primary_ammo = new_ammo);
 }
 
 void newdemo_record_secondary_ammo(int new_ammo)
@@ -1563,13 +1522,13 @@ void newdemo_record_secondary_ammo(int new_ammo)
 		return;
 	pause_game_world_time p;
 	nd_write_byte(ND_EVENT_SECONDARY_AMMO);
-	nd_write_short(nd_record_v_secondary_ammo < 0 ? static_cast<short>(new_ammo) : static_cast<short>(nd_record_v_secondary_ammo));
-	nd_write_short(static_cast<short>(nd_record_v_secondary_ammo = new_ammo));
+	nd_write_short(nd_record_v_secondary_ammo < 0 ? new_ammo : nd_record_v_secondary_ammo);
+	nd_write_short(nd_record_v_secondary_ammo = new_ammo);
 }
 
 void newdemo_record_door_opening(segnum_t segnum, sidenum_t side)
 {
-	pause_game_world_time p;
+	pause_game_world_time pause;
 	nd_write_byte(ND_EVENT_DOOR_OPENING);
 	nd_write_short(segnum);
 	nd_write_byte(underlying_value(side));
@@ -1577,10 +1536,7 @@ void newdemo_record_door_opening(segnum_t segnum, sidenum_t side)
 
 void newdemo_record_laser_level(const laser_level old_level, const laser_level new_level)
 {
-	pause_game_world_time p;
-	nd_write_byte(ND_EVENT_LASER_LEVEL);
-	nd_write_byte(static_cast<uint8_t>(old_level));
-	nd_write_byte(static_cast<uint8_t>(new_level));
+	nd_record_scalar_event<uint8_t>(ND_EVENT_LASER_LEVEL, old_level, new_level);
 }
 
 namespace dsx {
@@ -1588,26 +1544,24 @@ namespace dsx {
 #if DXX_BUILD_DESCENT == 2
 void newdemo_record_cloaking_wall(wallnum_t front_wall_num, wallnum_t back_wall_num, ubyte type, const wall_state state, fix cloak_value, fix l0, fix l1, fix l2, fix l3)
 {
-	pause_game_world_time p;
+	pause_game_world_time pause;
 	nd_write_byte(ND_EVENT_CLOAKING_WALL);
-	nd_write_byte(static_cast<uint8_t>(front_wall_num));
-	nd_write_byte(static_cast<uint8_t>(back_wall_num));
+	nd_write_byte(front_wall_num);
+	nd_write_byte(back_wall_num);
 	nd_write_byte(type);
 	nd_write_byte(underlying_value(state));
 	nd_write_byte(cloak_value);
-	nd_write_short(l0>>8);
-	nd_write_short(l1>>8);
-	nd_write_short(l2>>8);
-	nd_write_short(l3>>8);
+	nd_write_short(l0 >> 8);
+	nd_write_short(l1 >> 8);
+	nd_write_short(l2 >> 8);
+	nd_write_short(l3 >> 8);
 }
 #endif
 
 void newdemo_set_new_level(int level_num)
 {
 	pause_game_world_time p;
-	nd_write_byte(ND_EVENT_NEW_LEVEL);
-	nd_write_byte(static_cast<int8_t>(level_num));
-	nd_write_byte(static_cast<int8_t>(Current_level_num));
+	nd_write_byte(ND_EVENT_NEW_LEVEL, level_num, Current_level_num);
 #if DXX_BUILD_DESCENT == 2
 	if (nd_record_v_juststarted==1)
 	{
@@ -1621,8 +1575,7 @@ void newdemo_set_new_level(int level_num)
 			nd_write_byte (underlying_value(w.state));
 
 			const auto &side = vcsegptr(w.segnum)->unique_segment::sides[w.sidenum];
-			nd_write_short(underlying_value(side.tmap_num));
-			nd_write_short(underlying_value(side.tmap_num2));
+			nd_write_short(underlying_value(side.tmap_num), underlying_value(side.tmap_num2));
 			nd_record_v_juststarted=0;
 		}
 	}
@@ -3943,7 +3896,7 @@ static void newdemo_write_end()
 	auto &vcobjptr = Objects.vcptr;
 	auto &vmobjptr = Objects.vmptr;
 	sbyte cloaked{0};
-	unsigned short byte_count = 0;
+	std::size_t byte_count = 0;
 	nd_write_byte(ND_EVENT_EOF);
 	nd_write_short(nd_record_v_framebytes_written - 1);
 	if (+(Game_mode & GM_MULTI)) {
@@ -3953,8 +3906,7 @@ static void newdemo_write_end()
 			if (+(objp->ctype.player_info.powerup_flags & player_flag::cloaked))
 				cloaked |= (1 << i);
 		}
-		nd_write_byte(cloaked);
-		nd_write_byte(ND_EVENT_EOF);
+		nd_write_byte(cloaked, ND_EVENT_EOF);
 	} else {
 		nd_write_short(ND_EVENT_EOF);
 	}
@@ -3966,37 +3918,35 @@ static void newdemo_write_end()
 	byte_count += 10;       // from nd_record_v_framebytes_written
 
 	auto &player_info = get_local_plrobj().ctype.player_info;
-	nd_write_byte(static_cast<int8_t>(f2ir(player_info.energy)));
-	nd_write_byte(static_cast<int8_t>(f2ir(get_local_plrobj().shields)));
+	nd_write_byte(f2ir(player_info.energy), f2ir(get_local_plrobj().shields));
 	nd_write_int(+player_info.powerup_flags);        // be sure players flags are set
-	nd_write_byte(static_cast<int8_t>(static_cast<primary_weapon_index>(player_info.Primary_weapon)));
-	nd_write_byte(static_cast<int8_t>(static_cast<secondary_weapon_index>(player_info.Secondary_weapon)));
+	nd_write_byte(underlying_value(player_info.Primary_weapon.get_active()),
+		underlying_value(player_info.Secondary_weapon.get_active()));
 	byte_count += 8;
 
-	for (const uint8_t i : xrange(MAX_PRIMARY_WEAPONS))
-		nd_write_short(primary_weapon_index{i} == primary_weapon_index::vulcan ? player_info.vulcan_ammo : 0);
+	for (uint8_t i = 0; i < MAX_PRIMARY_WEAPONS; ++i)
+		nd_write_short(primary_weapon_index{i} == primary_weapon_index::vulcan ? player_info.vulcan_ammo : uint16_t{0});
 
 	range_for (auto &i, player_info.secondary_ammo)
 		nd_write_short(i);
 	byte_count += (sizeof(short) * (MAX_PRIMARY_WEAPONS + MAX_SECONDARY_WEAPONS));
 
-	nd_write_byte(static_cast<uint8_t>(player_info.laser_level));
+	nd_write_byte(underlying_value(player_info.laser_level));
 	byte_count++;
 
 	if (+(Game_mode & GM_MULTI)) {
-		nd_write_byte(static_cast<int8_t>(N_players));
+		nd_write_byte(N_players);
 		byte_count++;
 		range_for (auto &i, partial_const_range(Players, N_players)) {
-			nd_write_string(static_cast<const char *>(i.callsign));
-			byte_count += (strlen(static_cast<const char *>(i.callsign)) + 2);
+			nd_write_string(i.callsign);
+			byte_count += (strlen(i.callsign) + 2);
 			nd_write_byte(underlying_value(i.connected));
 			auto &pl_info = vcobjptr(i.objnum)->ctype.player_info;
 			if (+(Game_mode & GM_MULTI_COOP)) {
 				nd_write_int(pl_info.mission.score);
 				byte_count += 5;
 			} else {
-				nd_write_short(pl_info.net_killed_total);
-				nd_write_short(pl_info.net_kills_total);
+				nd_write_short(pl_info.net_killed_total, pl_info.net_kills_total);
 				byte_count += 5;
 			}
 		}
@@ -4007,8 +3957,7 @@ static void newdemo_write_end()
 	nd_write_short(byte_count);
 	}
 
-	nd_write_byte(Current_level_num);
-	nd_write_byte(ND_EVENT_EOF);
+	nd_write_byte(Current_level_num, ND_EVENT_EOF);
 }
 
 static bool guess_demo_name(ntstring<PATH_MAX - 16> &filename)
