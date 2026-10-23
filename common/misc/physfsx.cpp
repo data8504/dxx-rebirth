@@ -54,6 +54,8 @@ std::pair<RAIINamedPHYSFS_File, PHYSFS_ErrorCode> PHYSFSX_openReadBuffered_inter
 
 PHYSFSX_fgets_t::result PHYSFSX_fgets_t::get(const std::span<char> buf, PHYSFS_File *const fp)
 {
+	if (buf.size() < 2)
+		return {};
 	/* Tell PHYSFS not to use the last byte of the buffer, so that this
 	 * function can always write to the byte after the last byte read from the
 	 * file.
@@ -95,7 +97,9 @@ PHYSFSX_fgets_t::result PHYSFSX_fgets_t::get(const std::span<char> buf, PHYSFS_F
 		}
 		else
 			continue;
-		PHYSFS_seek(fp, PHYSFS_tell(fp) + p - e + 1);
+		const auto unread = e - (p + 1);
+		if (unread && PHYSFSX_fseek(fp, -unread, SEEK_CUR))
+			return {};
 		break;
 	}
 	*p = 0;
