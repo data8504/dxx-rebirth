@@ -2635,18 +2635,7 @@ static int newdemo_read_frame_information(int rewrite)
 				nd_playback_v_rear = c == ND_EVENT_RESTORE_REARVIEW;
 			break;
 
-		case ND_EVENT_WALL_SET_TMAP_NUM1: {
-			segnum_t seg, cseg;
-			uint16_t tmap;
-			uint8_t side, cside;
-
-			if (!event.read_for_playback(seg, side, cseg, cside, tmap))
-				break;
-			if ((Newdemo_vcr_state != ND_STATE_PAUSED) && (Newdemo_vcr_state != ND_STATE_REWINDING) && (Newdemo_vcr_state != ND_STATE_ONEFRAMEBACKWARD))
-				vmsegptr(seg)->unique_segment::sides[(sidenum_t{side})].tmap_num = vmsegptr(cseg)->unique_segment::sides[(sidenum_t{cside})].tmap_num = texture1_value{tmap};
-			break;
-		}
-
+		case ND_EVENT_WALL_SET_TMAP_NUM1:
 		case ND_EVENT_WALL_SET_TMAP_NUM2: {
 			segnum_t seg, cseg;
 			uint16_t tmap;
@@ -2654,10 +2643,18 @@ static int newdemo_read_frame_information(int rewrite)
 
 			if (!event.read_for_playback(seg, side, cseg, cside, tmap))
 				break;
-			if ((Newdemo_vcr_state != ND_STATE_PAUSED) && (Newdemo_vcr_state != ND_STATE_REWINDING) && (Newdemo_vcr_state != ND_STATE_ONEFRAMEBACKWARD)) {
-				unique_segment &s0 = *vmsegptr(seg);
-				auto &tmap_num2 = s0.sides[(sidenum_t{side})].tmap_num2;
-				tmap_num2 = vmsegptr(cseg)->unique_segment::sides[(sidenum_t{cside})].tmap_num2 = texture2_value{tmap};
+			const auto side_num = build_sidenum_from_untrusted(side);
+			const auto cside_num = build_sidenum_from_untrusted(cside);
+			if (!side_num || !cside_num)
+				break;
+			if ((Newdemo_vcr_state != ND_STATE_PAUSED) && (Newdemo_vcr_state != ND_STATE_REWINDING) && (Newdemo_vcr_state != ND_STATE_ONEFRAMEBACKWARD))
+			{
+				auto &front = vmsegptr(seg)->unique_segment::sides[*side_num];
+				auto &back = vmsegptr(cseg)->unique_segment::sides[*cside_num];
+				if (c == ND_EVENT_WALL_SET_TMAP_NUM1)
+					front.tmap_num = back.tmap_num = texture1_value{tmap};
+				else
+					front.tmap_num2 = back.tmap_num2 = texture2_value{tmap};
 			}
 			break;
 		}
