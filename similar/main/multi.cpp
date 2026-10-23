@@ -180,36 +180,6 @@ static const char *prepare_kill_name(fvcplayerptr &vcplayerptr, const game_mode_
 		return callsign;
 }
 
-constexpr vms_angvec build_native_endian_angvec_from_little_endian(const vms_angvec &v)
-{
-	return vms_angvec{
-		.p = INTEL_SHORT(v.p),
-		.b = INTEL_SHORT(v.b),
-		.h = INTEL_SHORT(v.h),
-	};
-}
-
-constexpr vms_vector build_native_endian_vector_from_little_endian(const vms_vector &v)
-{
-	return vms_vector{
-		.x = INTEL_INT(v.x),
-		.y = INTEL_INT(v.y),
-		.z = INTEL_INT(v.z),
-	};
-}
-
-constexpr vms_matrix build_native_endian_matrix_from_little_endian(const vms_matrix &v)
-{
-	return vms_matrix{
-		.rvec = build_native_endian_vector_from_little_endian(v.rvec),
-		.uvec = build_native_endian_vector_from_little_endian(v.uvec),
-		.fvec = build_native_endian_vector_from_little_endian(v.fvec),
-	};
-}
-
-#define build_little_endian_angvec_from_native_endian build_native_endian_angvec_from_little_endian
-#define build_little_endian_matrix_from_native_endian build_native_endian_matrix_from_little_endian
-#define build_little_endian_vector_from_native_endian build_native_endian_vector_from_little_endian
 
 }
 DEFINE_SERIAL_UDT_TO_MESSAGE(shortpos, s, (s.bytemat, s.xo, s.yo, s.zo, s.segment, s.velx, s.vely, s.velz));
@@ -6071,193 +6041,21 @@ void multi_object_to_object_rw(const object &obj, object_rw *const obj_rw)
 		object_rw_swap(obj_rw, physfsx_endian::foreign);
 }
 
-// turn object_rw to object after receiving
 void multi_object_rw_to_object(const object_rw *const obj_rw, object &obj)
 {
-	obj = {};
-	DXX_POISON_VAR(obj, 0xfd);
-	obj.type = build_valid_object_type_from_untrusted({obj_rw->type});
-	if (obj.type == object_type::OBJ_NONE)
-		return;
-	obj.signature     = object_signature_t{static_cast<uint16_t>(INTEL_INT(obj_rw->signature))};
-	obj.id            = obj_rw->id;
-	/* obj->next,obj->prev handled by caller based on segment */
-	obj.control_source  = typename object::control_type{obj_rw->control_source};
-	obj.movement_source = typename object::movement_type{obj_rw->movement_source};
-	if (const auto rtype = obj_rw->render_type; valid_render_type(rtype))
-		obj.render_type = render_type{rtype};
+	if constexpr (words_bigendian)
+	{
+		auto native = *obj_rw;
+		// Network decoding validates the render tag before reading ghost polygon data.
+		const auto render_tag = native.render_type;
+		if (!valid_render_type(render_tag))
+			native.render_type = underlying_value(render_type::RT_NONE);
+		object_rw_swap(&native, physfsx_endian::foreign);
+		native.render_type = render_tag;
+		object_rw_to_object(&native, obj, object_rw_context::network);
+	}
 	else
-	{
-		con_printf(CON_URGENT, "peer sent bogus render type %#x for object %p; using none instead", rtype, &obj);
-		obj.render_type = render_type::RT_NONE;
-	}
-	obj.flags         = obj_rw->flags;
-	obj.segnum = vmsegidx_t::check_nothrow_index(INTEL_SHORT(obj_rw->segnum)).value_or(segment_none);
-	obj.attached_obj = object_none;
-	obj.pos         = build_native_endian_vector_from_little_endian(obj_rw->pos);
-	obj.orient = build_native_endian_matrix_from_little_endian(obj_rw->orient);
-	obj.size          = INTEL_INT(obj_rw->size);
-	obj.shields       = INTEL_INT(obj_rw->shields);
-	obj.contains = build_contained_object_parameters_from_untrusted(obj_rw->contains_type, obj_rw->contains_id, obj_rw->contains_count);
-	obj.matcen_creator= obj_rw->matcen_creator;
-	obj.lifeleft      = INTEL_INT(obj_rw->lifeleft);
-	
-	switch (obj.movement_source)
-	{
-		case object::movement_type::None:
-			break;
-		case object::movement_type::physics:
-			obj.mtype.phys_info.velocity  = build_native_endian_vector_from_little_endian(obj_rw->mtype.phys_info.velocity);
-			obj.mtype.phys_info.thrust  = build_native_endian_vector_from_little_endian(obj_rw->mtype.phys_info.thrust);
-			obj.mtype.phys_info.mass        = INTEL_INT(obj_rw->mtype.phys_info.mass);
-			obj.mtype.phys_info.drag        = INTEL_INT(obj_rw->mtype.phys_info.drag);
-			obj.mtype.phys_info.rotvel  = build_native_endian_vector_from_little_endian(obj_rw->mtype.phys_info.rotvel);
-			obj.mtype.phys_info.rotthrust  = build_native_endian_vector_from_little_endian(obj_rw->mtype.phys_info.rotthrust);
-			obj.mtype.phys_info.turnroll    = INTEL_SHORT(obj_rw->mtype.phys_info.turnroll);
-			obj.mtype.phys_info.flags       = INTEL_SHORT(obj_rw->mtype.phys_info.flags);
-			break;
-			
-		case object::movement_type::spinning:
-			obj.mtype.spin_rate = build_native_endian_vector_from_little_endian(obj_rw->mtype.spin_rate);
-			break;
-	}
-	
-	switch (obj.control_source)
-	{
-		case object::control_type::weapon:
-			obj.ctype.laser_info.parent_type      = INTEL_SHORT(obj_rw->ctype.laser_info.parent_type);
-			obj.ctype.laser_info.parent_num       = INTEL_SHORT(obj_rw->ctype.laser_info.parent_num);
-			obj.ctype.laser_info.parent_signature = object_signature_t{static_cast<uint16_t>(INTEL_INT(obj_rw->ctype.laser_info.parent_signature))};
-			obj.ctype.laser_info.creation_time    = INTEL_INT(obj_rw->ctype.laser_info.creation_time);
-			/* `last_hitobj` is untrusted network data, so it must be checked before use. */
-			if (const auto last_hitobj{vcobjidx_t::check_nothrow_index(INTEL_SHORT(obj_rw->ctype.laser_info.last_hitobj))})
-				obj.ctype.laser_info.reset_hitobj(*last_hitobj);
-			else
-				obj.ctype.laser_info.clear_hitobj();
-			obj.ctype.laser_info.track_goal       = INTEL_SHORT(obj_rw->ctype.laser_info.track_goal);
-			obj.ctype.laser_info.multiplier       = INTEL_INT(obj_rw->ctype.laser_info.multiplier);
-#if DXX_BUILD_DESCENT == 2
-			obj.ctype.laser_info.last_afterburner_time = 0;
-#endif
-			break;
-			
-		case object::control_type::explosion:
-			obj.ctype.expl_info.spawn_time    = INTEL_INT(obj_rw->ctype.expl_info.spawn_time);
-			obj.ctype.expl_info.delete_time   = INTEL_INT(obj_rw->ctype.expl_info.delete_time);
-			obj.ctype.expl_info.delete_objnum = INTEL_SHORT(obj_rw->ctype.expl_info.delete_objnum);
-			obj.ctype.expl_info.attach_parent = INTEL_SHORT(obj_rw->ctype.expl_info.attach_parent);
-			obj.ctype.expl_info.prev_attach   = INTEL_SHORT(obj_rw->ctype.expl_info.prev_attach);
-			obj.ctype.expl_info.next_attach   = INTEL_SHORT(obj_rw->ctype.expl_info.next_attach);
-			break;
-			
-		case object::control_type::ai:
-		{
-			obj.ctype.ai_info.behavior               = static_cast<ai_behavior>(obj_rw->ctype.ai_info.behavior);
-			{
-				const uint8_t gun_num = obj_rw->ctype.ai_info.flags[0];
-				obj.ctype.ai_info.CURRENT_GUN = (gun_num < MAX_GUNS) ? robot_gun_number{gun_num} : robot_gun_number{};
-			}
-			obj.ctype.ai_info.CURRENT_STATE = build_ai_state_from_untrusted(obj_rw->ctype.ai_info.flags[1]).value_or(ai_static_state::AIS_NONE);
-			obj.ctype.ai_info.GOAL_STATE = build_ai_state_from_untrusted(obj_rw->ctype.ai_info.flags[2]).value_or(ai_static_state::AIS_NONE);
-			obj.ctype.ai_info.PATH_DIR = obj_rw->ctype.ai_info.flags[3];
-#if DXX_BUILD_DESCENT == 1
-			obj.ctype.ai_info.SUBMODE = obj_rw->ctype.ai_info.flags[4];
-#elif DXX_BUILD_DESCENT == 2
-			obj.ctype.ai_info.SUB_FLAGS = obj_rw->ctype.ai_info.flags[4];
-#endif
-			obj.ctype.ai_info.GOALSIDE = build_sidenum_from_untrusted(obj_rw->ctype.ai_info.flags[5]).value_or(sidenum_t::WLEFT);
-			obj.ctype.ai_info.CLOAKED = obj_rw->ctype.ai_info.flags[6];
-			obj.ctype.ai_info.SKIP_AI_COUNT = obj_rw->ctype.ai_info.flags[7];
-			obj.ctype.ai_info.REMOTE_OWNER = obj_rw->ctype.ai_info.flags[8];
-			obj.ctype.ai_info.REMOTE_SLOT_NUM = obj_rw->ctype.ai_info.flags[9];
-			obj.ctype.ai_info.hide_segment = vmsegidx_t::check_nothrow_index(INTEL_SHORT(obj_rw->ctype.ai_info.hide_segment)).value_or(segment_none);
-			obj.ctype.ai_info.hide_index             = INTEL_SHORT(obj_rw->ctype.ai_info.hide_index);
-			obj.ctype.ai_info.path_length            = INTEL_SHORT(obj_rw->ctype.ai_info.path_length);
-			obj.ctype.ai_info.cur_path_index         =
-#if DXX_BUILD_DESCENT == 1
-				INTEL_SHORT(obj_rw->ctype.ai_info.cur_path_index);
-#elif DXX_BUILD_DESCENT == 2
-				obj_rw->ctype.ai_info.cur_path_index;
-#endif
-			obj.ctype.ai_info.danger_laser_num       = INTEL_SHORT(obj_rw->ctype.ai_info.danger_laser_num);
-			if (obj.ctype.ai_info.danger_laser_num != object_none)
-				obj.ctype.ai_info.danger_laser_signature = object_signature_t{static_cast<uint16_t>(INTEL_INT(obj_rw->ctype.ai_info.danger_laser_signature))};
-#if DXX_BUILD_DESCENT == 1
-#elif DXX_BUILD_DESCENT == 2
-			obj.ctype.ai_info.dying_sound_playing    = obj_rw->ctype.ai_info.dying_sound_playing;
-			obj.ctype.ai_info.dying_start_time       = INTEL_INT(obj_rw->ctype.ai_info.dying_start_time);
-#endif
-			break;
-		}
-			
-		case object::control_type::light:
-			obj.ctype.light_info.intensity = INTEL_INT(obj_rw->ctype.light_info.intensity);
-			break;
-			
-		case object::control_type::powerup:
-			obj.ctype.powerup_info.count         = INTEL_INT(obj_rw->ctype.powerup_info.count);
-#if DXX_BUILD_DESCENT == 1
-			obj.ctype.powerup_info.creation_time = 0;
-			obj.ctype.powerup_info.flags         = 0;
-#elif DXX_BUILD_DESCENT == 2
-			obj.ctype.powerup_info.creation_time = INTEL_INT(obj_rw->ctype.powerup_info.creation_time);
-			obj.ctype.powerup_info.flags         = INTEL_INT(obj_rw->ctype.powerup_info.flags);
-#endif
-			break;
-		case object::control_type::cntrlcen:
-		{
-			// gun points of reactor now part of the object but of course not saved in object_rw. Let's just recompute them.
-			calc_controlcen_gun_point(obj);
-			break;
-		}
-		case object::control_type::None:
-		case object::control_type::flying:
-		case object::control_type::slew:
-		case object::control_type::flythrough:
-		case object::control_type::repaircen:
-		case object::control_type::morph:
-		case object::control_type::debris:
-		case object::control_type::remote:
-		default:
-			break;
-	}
-	
-	switch (obj.render_type)
-	{
-		case render_type::RT_NONE:
-			if (obj.type != object_type::OBJ_GHOST) // HACK: when a player is dead or not connected yet, clients still expect to get polyobj data - even if render_type == RT_NONE at this time.
-				break;
-			[[fallthrough]];
-		case render_type::RT_MORPH:
-		case render_type::RT_POLYOBJ:
-		{
-			obj.rtype.pobj_info.model_num.dsx                = build_polygon_model_index_from_untrusted(INTEL_INT(obj_rw->rtype.pobj_info.model_num));
-			for (std::size_t i = 0; i < MAX_SUBMODELS; ++i)
-			{
-				obj.rtype.pobj_info.anim_angles[i] = build_native_endian_angvec_from_little_endian(obj_rw->rtype.pobj_info.anim_angles[i]);
-			}
-			obj.rtype.pobj_info.subobj_flags             = INTEL_INT(obj_rw->rtype.pobj_info.subobj_flags);
-			{
-				const auto t{INTEL_INT(obj_rw->rtype.pobj_info.tmap_override)};
-				obj.rtype.pobj_info.tmap_override = t >= 0 && std::cmp_less(t, Textures.size()) ? static_cast<texture_index>(t) : texture_index{UINT16_MAX};
-			}
-			obj.rtype.pobj_info.alt_textures             = INTEL_INT(obj_rw->rtype.pobj_info.alt_textures);
-			break;
-		}
-			
-		case render_type::RT_WEAPON_VCLIP:
-		case render_type::RT_HOSTAGE:
-		case render_type::RT_POWERUP:
-		case render_type::RT_FIREBALL:
-			obj.rtype.vclip_info.vclip_num = build_vclip_index_from_untrusted(INTEL_INT(obj_rw->rtype.vclip_info.vclip_num));
-			obj.rtype.vclip_info.frametime = INTEL_INT(obj_rw->rtype.vclip_info.frametime);
-			obj.rtype.vclip_info.framenum  = obj_rw->rtype.vclip_info.framenum;
-			break;
-			
-		case render_type::RT_LASER:
-			break;
-			
-	}
+		object_rw_to_object(obj_rw, obj, object_rw_context::network);
 }
 
 void show_netgame_info(const netgame_info &netgame)

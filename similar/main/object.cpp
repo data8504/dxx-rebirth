@@ -2863,6 +2863,223 @@ void object_to_object_rw(const object &obj, object_rw *const obj_rw, const objec
 	}
 }
 
+void object_rw_to_object(const object_rw *const obj_rw, object &obj, const object_rw_context context)
+{
+	obj = {};
+	DXX_POISON_VAR(obj, 0xfd);
+	obj.type = build_valid_object_type_from_untrusted({obj_rw->type});
+	if (obj.type == object_type::OBJ_NONE)
+	{
+		if (context == object_rw_context::savegame)
+			obj.signature = object_signature_t{0};
+		return;
+	}
+
+	obj.signature     = object_signature_t{static_cast<uint16_t>(obj_rw->signature)};
+	obj.id            = obj_rw->id;
+	if (context == object_rw_context::savegame)
+	{
+		obj.next = static_cast<objnum_t>(obj_rw->next);
+		obj.prev = static_cast<objnum_t>(obj_rw->prev);
+	}
+	obj.control_source  = typename object::control_type{obj_rw->control_source};
+	obj.movement_source  = typename object::movement_type{obj_rw->movement_source};
+	if (const auto rtype = obj_rw->render_type; valid_render_type(rtype))
+		obj.render_type = render_type{rtype};
+	else
+	{
+		con_printf(CON_URGENT, "%s bogus render type %#x for object %p; using none instead", context == object_rw_context::savegame ? "save file used" : "peer sent", rtype, &obj);
+		obj.render_type = render_type::RT_NONE;
+	}
+	obj.flags         = obj_rw->flags;
+	obj.segnum    = vmsegidx_t::check_nothrow_index(obj_rw->segnum).value_or(segment_none);
+	obj.attached_obj = context == object_rw_context::savegame ? static_cast<objnum_t>(obj_rw->attached_obj) : object_none;
+	obj.pos = obj_rw->pos;
+	obj.orient = obj_rw->orient;
+	obj.size          = obj_rw->size;
+	obj.shields       = obj_rw->shields;
+	obj.contains = build_contained_object_parameters_from_untrusted(static_cast<uint8_t>(obj_rw->contains_type), static_cast<uint8_t>(obj_rw->contains_id), static_cast<uint8_t>(obj_rw->contains_count));
+	obj.matcen_creator= obj_rw->matcen_creator;
+	obj.lifeleft      = obj_rw->lifeleft;
+
+	switch (obj.movement_source)
+	{
+		case object::movement_type::None:
+			break;
+		case object::movement_type::physics:
+			obj.mtype.phys_info.velocity = obj_rw->mtype.phys_info.velocity;
+			obj.mtype.phys_info.thrust = obj_rw->mtype.phys_info.thrust;
+			obj.mtype.phys_info.mass        = obj_rw->mtype.phys_info.mass;
+			obj.mtype.phys_info.drag        = obj_rw->mtype.phys_info.drag;
+			obj.mtype.phys_info.rotvel = obj_rw->mtype.phys_info.rotvel;
+			obj.mtype.phys_info.rotthrust = obj_rw->mtype.phys_info.rotthrust;
+			obj.mtype.phys_info.turnroll    = obj_rw->mtype.phys_info.turnroll;
+			obj.mtype.phys_info.flags       = obj_rw->mtype.phys_info.flags;
+			break;
+
+		case object::movement_type::spinning:
+			obj.mtype.spin_rate = obj_rw->mtype.spin_rate;
+			break;
+	}
+
+	switch (obj.control_source)
+	{
+		case object::control_type::weapon:
+			obj.ctype.laser_info.parent_type      = obj_rw->ctype.laser_info.parent_type;
+			obj.ctype.laser_info.parent_num       = static_cast<objnum_t>(obj_rw->ctype.laser_info.parent_num);
+			obj.ctype.laser_info.parent_signature = object_signature_t{static_cast<uint16_t>(obj_rw->ctype.laser_info.parent_signature)};
+			obj.ctype.laser_info.creation_time    = obj_rw->ctype.laser_info.creation_time;
+			/* Use vcobjidx_t so that `object_none` fails the test and uses the
+			 * `else` path.  `reset_hitobj` can accept `object_none`, but it
+			 * cannot accept invalid indexes, such as the corrupted value
+			 * `0x1ff` produced by certain <0.60 builds, when they ran
+			 * `laser_info.hitobj_list[-1] = 1;` due to using `object_none`
+			 * (`-1` back then) as if it were a valid index.  That bug was
+			 * fixed in 14cdf1b3521ff82701c58c04e47a6c1deefe8e43, but some old
+			 * save games were corrupted by it, so trap that error here.
+			 */
+			if (const auto last_hitobj{vcobjidx_t::check_nothrow_index(obj_rw->ctype.laser_info.last_hitobj)})
+				obj.ctype.laser_info.reset_hitobj(*last_hitobj);
+			else
+				obj.ctype.laser_info.clear_hitobj();
+			obj.ctype.laser_info.track_goal       = static_cast<objnum_t>(obj_rw->ctype.laser_info.track_goal);
+			obj.ctype.laser_info.multiplier       = obj_rw->ctype.laser_info.multiplier;
+#if DXX_BUILD_DESCENT == 2
+			obj.ctype.laser_info.last_afterburner_time = 0;
+#endif
+			break;
+
+		case object::control_type::explosion:
+			obj.ctype.expl_info.spawn_time    = obj_rw->ctype.expl_info.spawn_time;
+			obj.ctype.expl_info.delete_time   = obj_rw->ctype.expl_info.delete_time;
+			obj.ctype.expl_info.delete_objnum = static_cast<objnum_t>(obj_rw->ctype.expl_info.delete_objnum);
+			obj.ctype.expl_info.attach_parent = static_cast<objnum_t>(obj_rw->ctype.expl_info.attach_parent);
+			obj.ctype.expl_info.prev_attach   = static_cast<objnum_t>(obj_rw->ctype.expl_info.prev_attach);
+			obj.ctype.expl_info.next_attach   = static_cast<objnum_t>(obj_rw->ctype.expl_info.next_attach);
+			break;
+
+		case object::control_type::ai:
+		{
+			obj.ctype.ai_info.behavior               = static_cast<ai_behavior>(obj_rw->ctype.ai_info.behavior);
+			{
+				const uint8_t gun_num = static_cast<uint8_t>(obj_rw->ctype.ai_info.flags[0]);
+				obj.ctype.ai_info.CURRENT_GUN = (gun_num < MAX_GUNS) ? robot_gun_number{gun_num} : robot_gun_number{};
+			}
+			const auto fallback_state = context == object_rw_context::savegame ? ai_static_state::AIS_REST : ai_static_state::AIS_NONE;
+			obj.ctype.ai_info.CURRENT_STATE = build_ai_state_from_untrusted(static_cast<uint8_t>(obj_rw->ctype.ai_info.flags[1])).value_or(fallback_state);
+			obj.ctype.ai_info.GOAL_STATE = build_ai_state_from_untrusted(static_cast<uint8_t>(obj_rw->ctype.ai_info.flags[2])).value_or(fallback_state);
+			obj.ctype.ai_info.PATH_DIR = obj_rw->ctype.ai_info.flags[3];
+#if DXX_BUILD_DESCENT == 1
+			obj.ctype.ai_info.SUBMODE = obj_rw->ctype.ai_info.flags[4];
+#elif DXX_BUILD_DESCENT == 2
+			obj.ctype.ai_info.SUB_FLAGS = obj_rw->ctype.ai_info.flags[4];
+#endif
+			obj.ctype.ai_info.GOALSIDE = build_sidenum_from_untrusted(static_cast<uint8_t>(obj_rw->ctype.ai_info.flags[5])).value_or(sidenum_t::WLEFT);
+			obj.ctype.ai_info.CLOAKED = obj_rw->ctype.ai_info.flags[6];
+			obj.ctype.ai_info.SKIP_AI_COUNT = obj_rw->ctype.ai_info.flags[7];
+			obj.ctype.ai_info.REMOTE_OWNER = obj_rw->ctype.ai_info.flags[8];
+			obj.ctype.ai_info.REMOTE_SLOT_NUM = obj_rw->ctype.ai_info.flags[9];
+			obj.ctype.ai_info.hide_segment = vmsegidx_t::check_nothrow_index(obj_rw->ctype.ai_info.hide_segment).value_or(segment_none);
+			obj.ctype.ai_info.hide_index             = obj_rw->ctype.ai_info.hide_index;
+			obj.ctype.ai_info.path_length            = obj_rw->ctype.ai_info.path_length;
+			obj.ctype.ai_info.cur_path_index         = obj_rw->ctype.ai_info.cur_path_index;
+			obj.ctype.ai_info.danger_laser_num       = static_cast<objnum_t>(obj_rw->ctype.ai_info.danger_laser_num);
+			if (obj.ctype.ai_info.danger_laser_num != object_none)
+				obj.ctype.ai_info.danger_laser_signature = object_signature_t{static_cast<uint16_t>(obj_rw->ctype.ai_info.danger_laser_signature)};
+#if DXX_BUILD_DESCENT == 1
+#elif DXX_BUILD_DESCENT == 2
+			obj.ctype.ai_info.dying_sound_playing    = obj_rw->ctype.ai_info.dying_sound_playing;
+			obj.ctype.ai_info.dying_start_time       = obj_rw->ctype.ai_info.dying_start_time;
+#endif
+			break;
+		}
+
+		case object::control_type::light:
+			obj.ctype.light_info.intensity = obj_rw->ctype.light_info.intensity;
+			break;
+
+		case object::control_type::powerup:
+			obj.ctype.powerup_info.count         = obj_rw->ctype.powerup_info.count;
+#if DXX_BUILD_DESCENT == 1
+			obj.ctype.powerup_info.creation_time = 0;
+			obj.ctype.powerup_info.flags         = 0;
+#elif DXX_BUILD_DESCENT == 2
+			obj.ctype.powerup_info.creation_time = obj_rw->ctype.powerup_info.creation_time;
+			obj.ctype.powerup_info.flags         = obj_rw->ctype.powerup_info.flags;
+#endif
+			break;
+		case object::control_type::cntrlcen:
+		{
+			if (context == object_rw_context::savegame && obj.type == object_type::OBJ_GHOST)
+			{
+				/* Boss missions convert the reactor into object_type::OBJ_GHOST
+				 * instead of freeing it.  Old releases (before
+				 * ed46a05296f9d480f934d8c951c4755ebac1d5e7 ("Update
+				 * control_type when ghosting reactor")) did not update
+				 * `control_type`, so games saved by those releases have an
+				 * object with obj->type == object_type::OBJ_GHOST and obj->control_source ==
+				 * object::control_type::cntrlcen.  That inconsistency triggers an assertion down
+				 * in `calc_controlcen_gun_point` because obj->type !=
+				 * object_type::OBJ_CNTRLCEN.
+				 *
+				 * Add a special case here to correct this
+				 * inconsistency.
+				 */
+				obj.control_source = object::control_type::None;
+				break;
+			}
+			// gun points of reactor now part of the object but of course not saved in object_rw and overwritten due to reset_objects(). Let's just recompute them.
+			calc_controlcen_gun_point(obj);
+			break;
+		}
+		case object::control_type::None:
+		case object::control_type::flying:
+		case object::control_type::slew:
+		case object::control_type::flythrough:
+		case object::control_type::repaircen:
+		case object::control_type::morph:
+		case object::control_type::debris:
+		case object::control_type::remote:
+		default:
+			break;
+	}
+
+	switch (obj.render_type)
+	{
+		case render_type::RT_NONE:
+			if (obj.type != object_type::OBJ_GHOST) // Ghost players retain their polygon data in both legacy formats.
+				break;
+			[[fallthrough]];
+		case render_type::RT_MORPH:
+		case render_type::RT_POLYOBJ:
+		{
+			obj.rtype.pobj_info.model_num.dsx            = build_polygon_model_index_from_untrusted(static_cast<unsigned>(obj_rw->rtype.pobj_info.model_num));
+			for (std::size_t i = 0; i < MAX_SUBMODELS; ++i)
+				obj.rtype.pobj_info.anim_angles[i] = obj_rw->rtype.pobj_info.anim_angles[i];
+			obj.rtype.pobj_info.subobj_flags             = static_cast<uint16_t>(obj_rw->rtype.pobj_info.subobj_flags);
+			{
+				const auto t{obj_rw->rtype.pobj_info.tmap_override};
+				obj.rtype.pobj_info.tmap_override = t >= 0 && std::cmp_less(t, Textures.size()) ? static_cast<texture_index>(t) : texture_index{UINT16_MAX};
+			}
+			obj.rtype.pobj_info.alt_textures             = static_cast<uint8_t>(obj_rw->rtype.pobj_info.alt_textures);
+			break;
+		}
+
+		case render_type::RT_WEAPON_VCLIP:
+		case render_type::RT_HOSTAGE:
+		case render_type::RT_POWERUP:
+		case render_type::RT_FIREBALL:
+			obj.rtype.vclip_info.vclip_num = build_vclip_index_from_untrusted(static_cast<unsigned>(obj_rw->rtype.vclip_info.vclip_num));
+			obj.rtype.vclip_info.frametime = obj_rw->rtype.vclip_info.frametime;
+			obj.rtype.vclip_info.framenum  = static_cast<uint8_t>(obj_rw->rtype.vclip_info.framenum);
+			break;
+
+		case render_type::RT_LASER:
+			break;
+
+	}
+}
+
 // Swap endianess of given object_rw if swap == 1
 void object_rw_swap(object_rw *obj, const physfsx_endian swap)
 {
