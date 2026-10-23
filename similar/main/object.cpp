@@ -2732,7 +2732,7 @@ void object_rw_swap(object_rw *obj, const physfsx_endian swap)
 			obj->mtype.phys_info.rotthrust.x = SWAPINT(obj->mtype.phys_info.rotthrust.x);
 			obj->mtype.phys_info.rotthrust.y = SWAPINT(obj->mtype.phys_info.rotthrust.y);
 			obj->mtype.phys_info.rotthrust.z = SWAPINT(obj->mtype.phys_info.rotthrust.z);
-			obj->mtype.phys_info.turnroll    = SWAPINT(obj->mtype.phys_info.turnroll);
+			obj->mtype.phys_info.turnroll    = SWAPSHORT(obj->mtype.phys_info.turnroll);
 			obj->mtype.phys_info.flags       = SWAPSHORT(obj->mtype.phys_info.flags);
 			break;
 			
@@ -2812,9 +2812,9 @@ void object_rw_swap(object_rw *obj, const physfsx_endian swap)
 			obj->rtype.pobj_info.model_num                = SWAPINT(obj->rtype.pobj_info.model_num);
 			for (uint_fast32_t i=0;i<MAX_SUBMODELS;i++)
 			{
-				obj->rtype.pobj_info.anim_angles[i].p = SWAPINT(obj->rtype.pobj_info.anim_angles[i].p);
-				obj->rtype.pobj_info.anim_angles[i].b = SWAPINT(obj->rtype.pobj_info.anim_angles[i].b);
-				obj->rtype.pobj_info.anim_angles[i].h = SWAPINT(obj->rtype.pobj_info.anim_angles[i].h);
+				obj->rtype.pobj_info.anim_angles[i].p = SWAPSHORT(obj->rtype.pobj_info.anim_angles[i].p);
+				obj->rtype.pobj_info.anim_angles[i].b = SWAPSHORT(obj->rtype.pobj_info.anim_angles[i].b);
+				obj->rtype.pobj_info.anim_angles[i].h = SWAPSHORT(obj->rtype.pobj_info.anim_angles[i].h);
 			}
 			obj->rtype.pobj_info.subobj_flags             = SWAPINT(obj->rtype.pobj_info.subobj_flags);
 			obj->rtype.pobj_info.tmap_override            = SWAPINT(obj->rtype.pobj_info.tmap_override);
