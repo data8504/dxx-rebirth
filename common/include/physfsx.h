@@ -166,26 +166,34 @@ static inline int PHYSFSX_fgetc(PHYSFS_File *const fp)
 	return c;
 }
 
-static inline int PHYSFSX_fseek(PHYSFS_File *fp, long int offset, int where)
+// Like fseek: a signed offset from the selected origin, zero on success.
+static inline int PHYSFSX_fseek(PHYSFS_File *fp, const PHYSFS_sint64 offset, const int where)
 {
-	int c, goal_position;
+	PHYSFS_sint64 base{0};
 
 	switch(where)
 	{
 	case SEEK_SET:
-		goal_position = offset;
 		break;
 	case SEEK_CUR:
-		goal_position = PHYSFS_tell(fp) + offset;
+		base = PHYSFS_tell(fp);
 		break;
 	case SEEK_END:
-		goal_position = PHYSFS_fileLength(fp) + offset;
+		base = PHYSFS_fileLength(fp);
 		break;
 	default:
 		return 1;
 	}
-	c = PHYSFS_seek(fp, goal_position);
-	return !c;
+	// Check query failure before arithmetic; this also rejects INT64_MIN offsets.
+	if (base < 0 || offset < -base)
+		return 1;
+	PHYSFS_uint64 position;
+	if (offset < 0)
+		position = static_cast<PHYSFS_uint64>(base + offset);
+	else
+		// Two nonnegative signed 64-bit values fit in an unsigned 64-bit sum.
+		position = static_cast<PHYSFS_uint64>(base) + static_cast<PHYSFS_uint64>(offset);
+	return !PHYSFS_seek(fp, position);
 }
 
 template <std::size_t N>
