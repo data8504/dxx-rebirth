@@ -2601,7 +2601,7 @@ static int newdemo_read_frame_information(int rewrite)
 			//laser is, so create a laser whose parent is the player
 				laser_parent dummy;
 				dummy.parent_type = object_type::OBJ_PLAYER;
-				dummy.parent_num = static_cast<objnum_t>(Player_num);
+				dummy.parent_num = get_local_player().objnum;
 				check_effect_blowup(LevelSharedDestructibleLightState, Vclip, vmsegptridx(segnum), *side_num, pnt, dummy, 0, 0);
 #endif
 			}
