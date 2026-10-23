@@ -23,6 +23,10 @@ COPYRIGHT 1993-1999 PARALLAX SOFTWARE CORPORATION.  ALL RIGHTS RESERVED.
  *
  */
 
+#include <algorithm>
+#include <array>
+#include <bit>
+#include <concepts>
 #include <cstdlib>
 #include <ctime>
 #include <limits>
@@ -210,7 +214,7 @@ int nd_playback_v_juststarted{0};
 #define REC_DELAY F1_0/20
 static int nd_record_v_start_frame = -1;
 static int nd_record_v_frame_number = -1;
-static short nd_record_v_framebytes_written = 0;
+static uint16_t nd_record_v_framebytes_written = 0;
 static int nd_record_v_recordframe = 1;
 static fix64 nd_record_v_recordframe_last_time = 0;
 static sbyte nd_record_v_no_space;
@@ -342,28 +346,29 @@ icobjptridx_t newdemo_find_object(object_signature_t signature)
 
 namespace {
 
-static int _newdemo_write(const void *buffer, int elsize, int nelem )
+static int _newdemo_write(const void *buffer, const std::size_t elsize, const std::size_t nelem)
 {
-	int num_written, total_size;
-
 	if (unlikely(nd_record_v_no_space))
 		return -1;
 
-	total_size = elsize * nelem;
-	nd_record_v_framebytes_written += total_size;
-	Newdemo_num_written += total_size;
-	Assert(outfile);
-	num_written = (PHYSFS_writeBytes)(outfile, buffer, elsize * nelem);
-
-	if (likely(num_written == nelem))
-		return num_written;
-
-	nd_record_v_no_space=2;
+	if (elsize && nelem <= std::numeric_limits<std::size_t>::max() / elsize)
+	{
+		const auto total_size = elsize * nelem;
+		if (std::cmp_less_equal(total_size, std::numeric_limits<int>::max() - Newdemo_num_written))
+		{
+			nd_record_v_framebytes_written = static_cast<uint16_t>(nd_record_v_framebytes_written + total_size);
+			Newdemo_num_written += static_cast<int>(total_size);
+			Assert(outfile);
+			if (likely(std::cmp_equal((PHYSFS_writeBytes)(outfile, buffer, total_size), total_size)))
+				return static_cast<int>(total_size);
+		}
+	}
+	nd_record_v_no_space = 2;
 	newdemo_stop_recording();
 	return -1;
 }
 
-static int newdemo_write(const std::integral auto *buffer, int elsize, int nelem)
+static int newdemo_write(const std::integral auto *buffer, const std::size_t elsize, const std::size_t nelem)
 {
 	return _newdemo_write(buffer, elsize, nelem);
 }
