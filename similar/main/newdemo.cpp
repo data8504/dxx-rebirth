@@ -2027,6 +2027,44 @@ static bool playing_backward()
 	return (Newdemo_vcr_state == ND_STATE_REWINDING) || (Newdemo_vcr_state == ND_STATE_ONEFRAMEBACKWARD);
 }
 
+struct demo_connection
+{
+	uint8_t pnum, new_player;
+	callsign_t old_callsign, new_callsign;
+	int16_t killed_total, kills_total;
+};
+
+// Recorded totals occupy 32-bit slots; playback uses their signed low 16 bits.
+// Echo raw words before narrowing. False means rewrite, not read failure;
+// the existing read-error handling remains unchanged.
+static bool nd_read_connection(const bool rewrite, demo_connection &connection)
+{
+	int32_t recorded_killed_total{}, recorded_kills_total{};
+	nd_read_byte(&connection.pnum);
+	nd_read_byte(&connection.new_player);
+	if (!connection.new_player)
+	{
+		nd_read_string(connection.old_callsign.buffer());
+		nd_read_int(&recorded_killed_total);
+		nd_read_int(&recorded_kills_total);
+	}
+	nd_read_string(connection.new_callsign.buffer());
+	if (rewrite)
+	{
+		nd_write_byte(connection.pnum, connection.new_player);
+		if (!connection.new_player)
+		{
+			nd_write_string(connection.old_callsign);
+			nd_write_int(recorded_killed_total, recorded_kills_total);
+		}
+		nd_write_string(connection.new_callsign);
+		return false;
+	}
+	connection.killed_total = static_cast<int16_t>(recorded_killed_total);
+	connection.kills_total = static_cast<int16_t>(recorded_kills_total);
+	return true;
+}
+
 static int newdemo_read_frame_information(int rewrite)
 {
 	auto &LevelUniqueControlCenterState = LevelUniqueObjectState.ControlCenterState;
@@ -2726,36 +2764,17 @@ static int newdemo_read_frame_information(int rewrite)
 		}
 
 		case ND_EVENT_MULTI_CONNECT: {
-			uint8_t pnum, new_player;
-			int killed_total{}, kills_total{};
-			callsign_t new_callsign, old_callsign;
-
-			nd_read_byte(&pnum);
-			nd_read_byte(&new_player);
-			if (!new_player) {
-				nd_read_string(old_callsign.buffer());
-				nd_read_int(&killed_total);
-				nd_read_int(&kills_total);
-			}
-			nd_read_string(new_callsign.buffer());
-			if (rewrite)
-			{
-				nd_write_byte(pnum, new_player);
-				if (!new_player) {
-					nd_write_string(old_callsign);
-					nd_write_int(killed_total, kills_total);
-				}
-				nd_write_string(new_callsign);
+			demo_connection connection;
+			if (!nd_read_connection(rewrite != 0, connection))
 				break;
-			}
-			auto &plr = *vmplayerptr(pnum);
+			auto &plr = *vmplayerptr(connection.pnum);
 			auto &player_info = vmobjptr(plr.objnum)->ctype.player_info;
 			if (playing_backward()) {
 				plr.connected = player_connection_status::disconnected;
-				if (!new_player) {
-					plr.callsign = old_callsign;
-					player_info.net_killed_total = static_cast<int16_t>(killed_total);
-					player_info.net_kills_total = static_cast<int16_t>(kills_total);
+				if (!connection.new_player) {
+					plr.callsign = connection.old_callsign;
+					player_info.net_killed_total = connection.killed_total;
+					player_info.net_kills_total = connection.kills_total;
 				} else {
 					N_players--;
 				}
@@ -2763,8 +2782,8 @@ static int newdemo_read_frame_information(int rewrite)
 				plr.connected = player_connection_status::playing;
 				player_info.net_kills_total = 0;
 				player_info.net_killed_total = 0;
-				plr.callsign = new_callsign;
-				if (new_player)
+				plr.callsign = connection.new_callsign;
+				if (connection.new_player)
 					N_players++;
 			}
 			break;
