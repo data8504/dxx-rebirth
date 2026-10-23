@@ -32,6 +32,7 @@ COPYRIGHT 1993-1999 PARALLAX SOFTWARE CORPORATION.  ALL RIGHTS RESERVED.
 #include "aistruct.h"
 
 #include <cassert>
+#include <cstddef>
 #include <cstdint>
 #include "dxxsconf.h"
 #include "valptridx.h"
@@ -289,11 +290,11 @@ struct laser_info : prohibit_void_ptr<>, laser_parent
 struct laser_info_rw
 {
 	short   parent_type;        // The type of the parent of this object
-	short   parent_num;         // The object's parent's number
-	int     parent_signature;   // The object's parent's signature...
+	uint16_t parent_num;         // The object's parent's number
+	uint32_t parent_signature;   // The object's parent's signature...
 	fix     creation_time;      // Absolute time of creation.
 	uint16_t   last_hitobj;        // For persistent weapons (survive object collision), object it most recently hit.
-	short   track_goal;         // Object this object is tracking.
+	uint16_t track_goal;         // Object this object is tracking.
 	fix     multiplier;         // Power if this is a fusion bolt (or other super weapon to be added).
 } __pack__;
 
@@ -311,10 +312,10 @@ struct explosion_info_rw
 {
     fix     spawn_time;         // when lifeleft is < this, spawn another
     fix     delete_time;        // when to delete object
-    short   delete_objnum;      // and what object to delete
-    short   attach_parent;      // explosion is attached to this object
-    short   prev_attach;        // previous explosion in attach list
-    short   next_attach;        // next explosion in attach list
+    uint16_t delete_objnum;      // and what object to delete
+    uint16_t attach_parent;      // explosion is attached to this object
+    uint16_t prev_attach;        // previous explosion in attach list
+    uint16_t next_attach;        // next explosion in attach list
 } __pack__;
 
 struct light_info : prohibit_void_ptr<>
@@ -361,9 +362,9 @@ struct vclip_info : prohibit_void_ptr<>
 
 struct vclip_info_rw
 {
-	int     vclip_num;
+	uint32_t vclip_num;
 	fix     frametime;
-	sbyte   framenum;
+	uint8_t framenum;
 } __pack__;
 
 // structures for different kinds of rendering
@@ -391,11 +392,11 @@ struct polyobj_info : prohibit_void_ptr<>
 
 struct polyobj_info_rw
 {
-	int     model_num;          // which polygon model
+	uint32_t model_num;          // which polygon model
 	vms_angvec anim_angles[MAX_SUBMODELS]; // angles for each subobject
-	int     subobj_flags;       // specify which subobjs to draw
+	uint32_t subobj_flags;       // specify which subobjs to draw
 	int     tmap_override;      // if this is not -1, map all face to this
-	int     alt_textures;       // if not -1, use these textures instead
+	uint32_t alt_textures;       // Alternative texture set, stored at the legacy 32-bit width.
 } __pack__;
 
 struct object_base
@@ -495,24 +496,24 @@ struct object : public ::dcx::object_base
 // Same as above but structure Savegames/Multiplayer objects expect
 struct object_rw
 {
-	int     signature;      // Every object ever has a unique signature...
+	uint32_t signature;      // Every object ever has a unique signature...
 	ubyte   type;           // what type of object this is... robot, weapon, hostage, powerup, fireball
 	ubyte   id;             // which form of object...which powerup, robot, etc.
-	short   next,prev;      // id of next and previous connected object in Objects, -1 = no connection
+	uint16_t next,prev;      // id of next and previous connected object in Objects, 0xffff = no connection
 	ubyte   control_source;   // how this object is controlled
 	ubyte   movement_source;  // how this object moves
 	ubyte   render_type;    // how this object renders
 	ubyte   flags;          // misc flags
 	uint16_t segnum;         // segment number containing object
-	short   attached_obj;   // number of attached fireball object
+	uint16_t attached_obj;   // number of attached fireball object
 	vms_vector pos;         // absolute x,y,z coordinate of center of object
 	vms_matrix orient;      // orientation of object in world
 	fix     size;           // 3d size of object - for collision detection
 	fix     shields;        // Starts at maximum, when <0, object dies..
 	vms_vector last_pos;    // where object was last frame
-	sbyte   contains_type;  // Type of object this object contains (eg, spider contains powerup)
-	sbyte   contains_id;    // ID of object this object contains (eg, id = blue type = key)
-	sbyte   contains_count; // number of objects of type:id this object contains
+	uint8_t contains_type;  // Type of object this object contains (eg, spider contains powerup)
+	uint8_t contains_id;    // ID of object this object contains (eg, id = blue type = key)
+	uint8_t contains_count; // number of objects of type:id this object contains
 	sbyte   matcen_creator; // Materialization center that created this object, high bit set if matcen-created
 	fix     lifeleft;       // how long until goes away, or 7fff if immortal
 	// -- Removed, MK, 10/16/95, using lifeleft instead: int     lightlevel;
@@ -539,6 +540,21 @@ struct object_rw
 	} __pack__ rtype;
 } __pack__;
 
+// These structures are copied directly into legacy savegames and network packets.
+static_assert(offsetof(laser_info_rw, parent_num) == 2 && offsetof(laser_info_rw, parent_signature) == 4);
+static_assert(offsetof(laser_info_rw, track_goal) == 14 && sizeof(laser_info_rw) == 20);
+static_assert(offsetof(explosion_info_rw, delete_objnum) == 8 && offsetof(explosion_info_rw, attach_parent) == 10);
+static_assert(offsetof(explosion_info_rw, prev_attach) == 12 && offsetof(explosion_info_rw, next_attach) == 14);
+static_assert(sizeof(explosion_info_rw) == 16);
+static_assert(offsetof(vclip_info_rw, vclip_num) == 0 && offsetof(vclip_info_rw, framenum) == 8);
+static_assert(sizeof(vclip_info_rw) == 9);
+static_assert(offsetof(polyobj_info_rw, model_num) == 0 && offsetof(polyobj_info_rw, subobj_flags) == 64);
+static_assert(offsetof(polyobj_info_rw, tmap_override) == 68 && offsetof(polyobj_info_rw, alt_textures) == 72);
+static_assert(sizeof(polyobj_info_rw) == 76);
+static_assert(offsetof(object_rw, signature) == 0 && offsetof(object_rw, next) == 6 && offsetof(object_rw, prev) == 8);
+static_assert(offsetof(object_rw, attached_obj) == 16 && offsetof(object_rw, contains_type) == 86);
+static_assert(offsetof(object_rw, contains_id) == 87 && offsetof(object_rw, contains_count) == 88);
+static_assert(offsetof(object_rw, mtype) == 94 && offsetof(object_rw, ctype) == 158 && offsetof(object_rw, rtype) == 188);
 static_assert(sizeof(object_rw) == 264);
 
 // The packed representation is shared; link handling and legacy repairs differ.
