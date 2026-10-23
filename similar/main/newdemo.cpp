@@ -539,6 +539,41 @@ static void nd_read_angvec(vms_angvec &v)
 	nd_read_short(&v.h);
 }
 
+// Event payloads use their declared scalar widths.  Segment identifiers here
+// are 16-bit; legacy 32-bit segment fields remain explicit at their call sites.
+static void nd_read_value(std::integral auto &value)
+{
+	if constexpr (sizeof(value) == 1) nd_read_byte(&value);
+	else if constexpr (sizeof(value) == 2) nd_read_short(&value);
+	else if constexpr (sizeof(value) == 4) nd_read_int(&value);
+	else static_assert(sizeof(value) <= 4);
+}
+
+static void nd_write_value(const std::integral auto value)
+{
+	if constexpr (sizeof(value) == 1) nd_write_byte(value);
+	else if constexpr (sizeof(value) == 2) nd_write_short(value);
+	else if constexpr (sizeof(value) == 4) nd_write_int(value);
+	else static_assert(sizeof(value) <= 4);
+}
+
+
+template <std::size_t N>
+static void nd_read_value(char (&value)[N]) { nd_read_string(value); }
+template <std::size_t N>
+static void nd_write_value(const char (&value)[N]) { nd_write_string(value); }
+
+// Rewriting echoes a fully read payload; incomplete fields never reach output.
+static bool nd_read_fields(const bool rewrite, auto &...fields)
+{
+	(nd_read_value(fields), ...);
+	if (nd_playback_v_bad_read)
+		return false;
+	if (rewrite)
+		(nd_write_value(fields), ...);
+	return true;
+}
+
 static void nd_read_shortpos(object_base &obj)
 {
 	auto &LevelSharedVertexState = LevelSharedSegmentState.get_vertex_state();
@@ -1664,16 +1699,12 @@ static int newdemo_read_demo_start(const purpose_type purpose)
 	auto &BossUniqueState = LevelUniqueObjectState.BossState;
 #endif
 
-	nd_read_byte(&c);
-	if (purpose == purpose_type::rewrite)
-		nd_write_byte(c);
+	nd_read_fields(purpose == purpose_type::rewrite, c);
 	if ((c != ND_EVENT_START_DEMO) || nd_playback_v_bad_read) {
 		nm_messagebox(menu_title{nullptr}, {TXT_OK}, "%s %s", TXT_CANT_PLAYBACK, TXT_DEMO_CORRUPT);
 		return 1;
 	}
-	nd_read_byte(&version);
-	if (purpose == purpose_type::rewrite)
-		nd_write_byte(version);
+	nd_read_fields(purpose == purpose_type::rewrite, version);
 #if DXX_BUILD_DESCENT == 1
 	if (version == DEMO_VERSION_SHAREWARE)
 		shareware = 1;
@@ -1685,9 +1716,7 @@ static int newdemo_read_demo_start(const purpose_type purpose)
 		return 1;
 	}
 #endif
-	nd_read_byte(&game_type);
-	if (purpose == purpose_type::rewrite)
-		nd_write_byte(game_type);
+	nd_read_fields(purpose == purpose_type::rewrite, game_type);
 #if DXX_BUILD_DESCENT == 1
 	if ((game_type == DEMO_GAME_TYPE_SHAREWARE) && shareware)
 		;	// all good
@@ -1715,8 +1744,7 @@ static int newdemo_read_demo_start(const purpose_type purpose)
 #endif
 	nd_read_fix(&nd_GameTime32); // NOTE: Demos write GameTime in fix.
 	GameTime64 = nd_GameTime32;
-	int recorded_demo_game_mode;
-	nd_read_int(&recorded_demo_game_mode);
+	auto recorded_demo_game_mode = nd_read_int<int32_t>();
 	Newdemo_game_mode = static_cast<game_mode_flags>(recorded_demo_game_mode);
 #if DXX_BUILD_DESCENT == 2
 	if (purpose == purpose_type::rewrite)
@@ -1733,9 +1761,7 @@ static int newdemo_read_demo_start(const purpose_type purpose)
 	{
 		if (+(Newdemo_game_mode & GM_TEAM))
 		{
-			nd_read_byte(&Netgame.team_vector);
-			if (purpose == purpose_type::rewrite)
-				nd_write_byte(Netgame.team_vector);
+			nd_read_fields(purpose == purpose_type::rewrite, Netgame.team_vector);
 		}
 
 		range_for (auto &i, Players)
@@ -1764,11 +1790,7 @@ static int newdemo_read_demo_start(const purpose_type purpose)
 
 			if (purpose != purpose_type::rewrite)
 				multi_new_game();
-			nd_read_byte(&c);
-			N_players = static_cast<int>(c);
-			// changed this to above two lines -- breaks on the mac because of
-			// endian issues
-			//		nd_read_byte(&N_players);
+			N_players = static_cast<unsigned>(nd_read_byte<int8_t>());
 			if (purpose == purpose_type::rewrite)
 				nd_write_byte(N_players);
 			range_for (auto &i, partial_range(Players, N_players)) {
@@ -1778,29 +1800,17 @@ static int newdemo_read_demo_start(const purpose_type purpose)
 				DXX_MAKE_VAR_UNDEFINED(player_info.cloak_time);
 				DXX_MAKE_VAR_UNDEFINED(player_info.invulnerable_time);
 				nd_read_string(i.callsign.buffer());
-				{
-					uint8_t connected;
-					nd_read_byte(&connected);
-					i.connected = player_connection_status{connected};
-				}
+				i.connected = nd_read_byte<player_connection_status>();
 				if (purpose == purpose_type::rewrite)
 				{
-					nd_write_string(static_cast<const char *>(i.callsign));
+					nd_write_string(i.callsign);
 					nd_write_byte(underlying_value(i.connected));
 				}
 
 				if (+(Newdemo_game_mode & GM_MULTI_COOP)) {
-					nd_read_int(&player_info.mission.score);
-					if (purpose == purpose_type::rewrite)
-						nd_write_int(player_info.mission.score);
+					nd_read_fields(purpose == purpose_type::rewrite, player_info.mission.score);
 				} else {
-					nd_read_short(&player_info.net_killed_total);
-					nd_read_short(&player_info.net_kills_total);
-					if (purpose == purpose_type::rewrite)
-					{
-						nd_write_short(player_info.net_killed_total);
-						nd_write_short(player_info.net_kills_total);
-					}
+					nd_read_fields(purpose == purpose_type::rewrite, player_info.net_killed_total, player_info.net_kills_total);
 				}
 			}
 			Game_mode = Newdemo_game_mode;
@@ -1828,10 +1838,9 @@ static int newdemo_read_demo_start(const purpose_type purpose)
 	}
 #endif
 
-	for (const uint8_t i : xrange(MAX_PRIMARY_WEAPONS))
+	for (uint8_t i = 0; i < MAX_PRIMARY_WEAPONS; ++i)
 	{
-		short s;
-		nd_read_short(&s);
+		auto s = nd_read_short<uint16_t>();
 		if (primary_weapon_index{i} == primary_weapon_index::vulcan)
 			player_info.vulcan_ammo = s;
 		if (purpose == purpose_type::rewrite)
@@ -1840,28 +1849,22 @@ static int newdemo_read_demo_start(const purpose_type purpose)
 
 	range_for (auto &i, player_info.secondary_ammo)
 	{
-		uint16_t u;
-		nd_read_short(&u);
-		i = u;
+		i = nd_read_short<uint8_t>();
 		if (purpose == purpose_type::rewrite)
 			nd_write_short(i);
 	}
 
-	uint8_t i;
-	nd_read_byte(&i);
-	const enum laser_level laser_level{i};
+	const auto laser_level = nd_read_byte<enum laser_level>();
 	if (purpose != purpose_type::rewrite && laser_level != player_info.laser_level)
 	{
 		player_info.laser_level = laser_level;
 	}
 	else if (purpose == purpose_type::rewrite)
-		nd_write_byte(static_cast<uint8_t>(laser_level));
+		nd_write_byte(underlying_value(laser_level));
 
 	// Support for missions
 
-	nd_read_string(current_mission);
-	if (purpose == purpose_type::rewrite)
-		nd_write_string(current_mission);
+	nd_read_fields(purpose == purpose_type::rewrite, current_mission);
 #if DXX_BUILD_DESCENT == 1
 	if (!shareware)
 	{
@@ -1892,16 +1895,9 @@ static int newdemo_read_demo_start(const purpose_type purpose)
 
 	nd_recorded_total = 0;
 	nd_playback_total = 0;
-	nd_read_byte(&energy);
-	nd_read_byte(&shield);
-	if (purpose == purpose_type::rewrite)
-	{
-		nd_write_byte(energy);
-		nd_write_byte(shield);
-	}
+	nd_read_fields(purpose == purpose_type::rewrite, energy, shield);
 
-	int recorded_player_flags;
-	nd_read_int(&recorded_player_flags);
+	auto recorded_player_flags = nd_read_int<int32_t>();
 	player_info.powerup_flags = player_flags(recorded_player_flags);
 	if (purpose == purpose_type::rewrite)
 		nd_write_int(recorded_player_flags);
@@ -1912,21 +1908,12 @@ static int newdemo_read_demo_start(const purpose_type purpose)
 		player_info.invulnerable_time = GameTime64 - (INVULNERABLE_TIME_MAX / 2);
 
 	auto &Primary_weapon = player_info.Primary_weapon;
-	{
-		int8_t v;
-		nd_read_byte(&v);
-		Primary_weapon = static_cast<primary_weapon_index>(v);
-	}
+	Primary_weapon = nd_read_byte<primary_weapon_index>();
 	auto &Secondary_weapon = player_info.Secondary_weapon;
-	{
-		int8_t v;
-		nd_read_byte(&v);
-		Secondary_weapon = static_cast<secondary_weapon_index>(v);
-	}
+	Secondary_weapon = nd_read_byte<secondary_weapon_index>();
 	if (purpose == purpose_type::rewrite)
 	{
-		nd_write_byte(underlying_value(Primary_weapon.get_active()));
-		nd_write_byte(underlying_value(Secondary_weapon.get_active()));
+		nd_write_byte(underlying_value(Primary_weapon.get_active()), underlying_value(Secondary_weapon.get_active()));
 	}
 
 // Next bit of code to fix problem that I introduced between 1.0 and 1.1
@@ -3373,9 +3360,10 @@ window_event_result newdemo_goto_end(int to_rewrite)
 	auto &Objects = LevelUniqueObjectState.Objects;
 	auto &vmobjptr = Objects.vmptr;
 	short frame_length{0}, byte_count=0, bshort=0;
-	sbyte level{0}, bbyte=0, c=0, cloaked=0;
+	sbyte level{0}, bbyte=0, cloaked=0;
 	ubyte energy{0}, shield=0;
-	int loc{0}, bint=0;
+	PHYSFS_sint64 loc{0};
+	int bint{0};
 
 	nd_seek(-2, SEEK_END);
 	nd_read_byte(&level);
@@ -3457,56 +3445,32 @@ window_event_result newdemo_goto_end(int to_rewrite)
 	auto &player_info = get_local_plrobj().ctype.player_info;
 	player_info.energy = i2f(energy);
 	get_local_plrobj().shields = i2f(shield);
-	int recorded_player_flags;
-	nd_read_int(&recorded_player_flags);
+	auto recorded_player_flags = nd_read_int<int32_t>();
 	player_info.powerup_flags = player_flags(recorded_player_flags);
 	if (+(player_info.powerup_flags & player_flag::cloaked)) {
 		player_info.cloak_time = GameTime64 - (CLOAK_TIME_MAX / 2);
 	}
 	if (+(player_info.powerup_flags & player_flag::invulnerable))
 		player_info.invulnerable_time = GameTime64 - (INVULNERABLE_TIME_MAX / 2);
+	player_info.Primary_weapon = nd_read_byte<primary_weapon_index>();
+	player_info.Secondary_weapon = nd_read_byte<secondary_weapon_index>();
+	for (uint8_t i = 0; i < MAX_PRIMARY_WEAPONS; ++i)
 	{
-		int8_t v;
-		nd_read_byte(&v);
-		player_info.Primary_weapon = static_cast<primary_weapon_index>(v);
-	}
-	{
-		int8_t v;
-		nd_read_byte(&v);
-		player_info.Secondary_weapon = static_cast<secondary_weapon_index>(v);
-	}
-	for (const uint8_t i : xrange(MAX_PRIMARY_WEAPONS))
-	{
-		short s;
-		nd_read_short(&s);
+		auto s = nd_read_short<uint16_t>();
 		if (primary_weapon_index{i} == primary_weapon_index::vulcan)
 			player_info.vulcan_ammo = s;
 	}
 	range_for (auto &i, player_info.secondary_ammo)
 	{
-		uint16_t u;
-		nd_read_short(&u);
-		i = u;
+		i = nd_read_short<uint8_t>();
 	}
-	{
-		uint8_t i;
-	nd_read_byte(&i);
-		player_info.laser_level = laser_level{i};
-	}
+	player_info.laser_level = nd_read_byte<laser_level>();
 
 	if (+(Newdemo_game_mode & GM_MULTI)) {
-		nd_read_byte(&c);
-		N_players = static_cast<int>(c);
-		// see newdemo_read_start_demo for explanation of
-		// why this is commented out
-		//		nd_read_byte(&N_players);
+		N_players = static_cast<unsigned>(nd_read_byte<int8_t>());
 		range_for (auto &i, partial_range(Players, N_players)) {
 			nd_read_string(i.callsign.buffer());
-			{
-				uint8_t connected;
-				nd_read_byte(&connected);
-				i.connected = player_connection_status{connected};
-			}
+			i.connected = nd_read_byte<player_connection_status>();
 			auto &pl_info = vmobjptr(i.objnum)->ctype.player_info;
 			if (+(Newdemo_game_mode & GM_MULTI_COOP)) {
 				nd_read_int(&pl_info.mission.score);
