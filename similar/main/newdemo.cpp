@@ -30,6 +30,7 @@ COPYRIGHT 1993-1999 PARALLAX SOFTWARE CORPORATION.  ALL RIGHTS RESERVED.
 #include <cstdlib>
 #include <ctime>
 #include <limits>
+#include <optional>
 #include <stdio.h>
 #include <stdarg.h>
 #include <errno.h>
@@ -2065,6 +2066,16 @@ static bool nd_read_connection(const bool rewrite, demo_connection &connection)
 	return true;
 }
 
+// Rewrite preserves the signed 16-bit fields. Playback retains their low 8 bits,
+// matching live storage; this does not validate ammunition capacity.
+static std::optional<std::pair<uint8_t, uint8_t>> nd_read_secondary_ammo(const demo_event_reader &event)
+{
+	int16_t old_ammo, new_ammo;
+	if (!event.read_for_playback(old_ammo, new_ammo))
+		return std::nullopt;
+	return std::pair{static_cast<uint8_t>(old_ammo), static_cast<uint8_t>(new_ammo)};
+}
+
 static int newdemo_read_frame_information(int rewrite)
 {
 	auto &LevelUniqueControlCenterState = LevelUniqueObjectState.ControlCenterState;
@@ -2877,16 +2888,16 @@ static int newdemo_read_frame_information(int rewrite)
 		}
 
 		case ND_EVENT_SECONDARY_AMMO: {
-			short old_ammo, new_ammo;
-
-			if (!event.read_for_playback(old_ammo, new_ammo))
+			const auto ammo = nd_read_secondary_ammo(event);
+			if (!ammo)
 				break;
+			const auto [old_ammo, new_ammo] = *ammo;
 
 			auto &player_info = get_local_plrobj().ctype.player_info;
 			if (playing_backward())
-				player_info.secondary_ammo[player_info.Secondary_weapon] = static_cast<uint8_t>(old_ammo);
+				player_info.secondary_ammo[player_info.Secondary_weapon] = old_ammo;
 			else if (playing_forward())
-				player_info.secondary_ammo[player_info.Secondary_weapon] = static_cast<uint8_t>(new_ammo);
+				player_info.secondary_ammo[player_info.Secondary_weapon] = new_ammo;
 			break;
 		}
 
