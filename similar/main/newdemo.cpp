@@ -1950,7 +1950,7 @@ static void newdemo_pop_ctrlcen_triggers()
 	auto &WallAnims = GameSharedState.WallAnims;
 	auto &Walls = LevelUniqueWallSubsystemState.Walls;
 	auto &vcwallptr = Walls.vcptr;
-	for (int i = 0; i < ControlCenterTriggers.num_links; i++) {
+	for (std::size_t i = 0; std::cmp_less(i, ControlCenterTriggers.num_links); ++i) {
 		const auto &&seg = vmsegptridx(ControlCenterTriggers.seg[i]);
 		const auto side = ControlCenterTriggers.side[i];
 		const auto csegi = seg->shared_segment::children[side];
@@ -1976,12 +1976,12 @@ static void newdemo_pop_ctrlcen_triggers()
 			continue;
 		}
 		const auto anim_num = vcwallptr(wall_num)->clip_num;
-		auto &wa = WallAnims[anim_num];
+		auto &wa = WallAnims.at(static_cast<std::size_t>(anim_num));
 		const auto n = wa.num_frames;
 		auto &seg0uside = seg->unique_segment::sides[side];
 		auto &seg1uside = csegp->unique_segment::sides[cside];
 		const auto next_tmap = wa.frames[n - 1];
-		if (wa.flags & WCF_TMAP1)
+		if (wa.flags & int16_t{WCF_TMAP1})
 			seg0uside.tmap_num = seg1uside.tmap_num = texture1_value{next_tmap};
 		else
 			seg0uside.tmap_num2 = seg1uside.tmap_num2 = texture2_value{next_tmap};
@@ -2082,7 +2082,7 @@ static int newdemo_read_frame_information(int rewrite)
 		case ND_EVENT_VIEWER_OBJECT:        // Followed by an object structure
 		{
 #if DXX_BUILD_DESCENT == 2
-			sbyte WhichWindow;
+			uint8_t WhichWindow;
 			nd_read_byte (&WhichWindow);
 			if (rewrite)
 				nd_write_byte(WhichWindow);
@@ -2155,7 +2155,7 @@ static int newdemo_read_frame_information(int rewrite)
 
 				obj_link_unchecked(Objects.vmptr, obj, Segments.vmptridx(segnum));
 				if (obj->type == object_type::OBJ_PLAYER && +(Newdemo_game_mode & GM_MULTI)) {
-					int player;
+					unsigned player;
 
 					if (+(Newdemo_game_mode & GM_TEAM))
 						player = static_cast<unsigned>(multi_get_team_from_player(Netgame, get_player_id(obj)));
@@ -2165,12 +2165,12 @@ static int newdemo_read_frame_information(int rewrite)
 						break;
 					player--;
 
-					for (int i=0;i<Polygon_models[obj->rtype.pobj_info.model_num.dsx].n_textures;i++)
+					for (unsigned i = 0; i < Polygon_models[obj->rtype.pobj_info.model_num.dsx].n_textures; ++i)
 						multi_player_textures[player][i] = ObjBitmaps[ObjBitmapPtrs[Polygon_models[obj->rtype.pobj_info.model_num.dsx].first_texture+i]];
 
-					multi_player_textures[player][4] = ObjBitmaps[ObjBitmapPtrs[First_multi_bitmap_num+(player)*2]];
-					multi_player_textures[player][5] = ObjBitmaps[ObjBitmapPtrs[First_multi_bitmap_num+(player)*2+1]];
-					obj->rtype.pobj_info.alt_textures = player+1;
+					multi_player_textures[player][4] = ObjBitmaps[ObjBitmapPtrs[static_cast<unsigned>(First_multi_bitmap_num) + player * 2]];
+					multi_player_textures[player][5] = ObjBitmaps[ObjBitmapPtrs[static_cast<unsigned>(First_multi_bitmap_num) + player * 2+1]];
+					obj->rtype.pobj_info.alt_textures = static_cast<uint8_t>(player + 1);
 				}
 			}
 		}
@@ -2221,7 +2221,7 @@ static int newdemo_read_frame_information(int rewrite)
 			break;
 
 		case ND_EVENT_WALL_HIT_PROCESS: {
-			int player;
+			unsigned player;
 			int side;
 			segnum_t segnum;
 			fix damage;
@@ -2233,8 +2233,7 @@ static int newdemo_read_frame_information(int rewrite)
 			if (nd_playback_v_bad_read) { done = -1; break; }
 			if (rewrite)
 			{
-				nd_write_int(segnum);
-				nd_write_int(side);
+				nd_write_int(segnum, side);
 				nd_write_fix(damage);
 				nd_write_int(player);
 				break;
@@ -2264,9 +2263,7 @@ static int newdemo_read_frame_information(int rewrite)
 			if (nd_playback_v_bad_read) { done = -1; break; }
 			if (rewrite)
 			{
-				nd_write_int(segnum);
-				nd_write_int(iside);
-				nd_write_int(objnum);
+				nd_write_int(segnum, iside, objnum);
 #if DXX_BUILD_DESCENT == 1
 				break;
 #elif DXX_BUILD_DESCENT == 2
@@ -2361,8 +2358,7 @@ static int newdemo_read_frame_information(int rewrite)
 			if (nd_playback_v_bad_read) {done = -1; break; }
 			if (rewrite)
 			{
-				nd_write_int(segnum);
-				nd_write_int(underlying_value(side));
+				nd_write_int(segnum, underlying_value(side));
 				break;
 			}
 			if (Newdemo_vcr_state != ND_STATE_PAUSED)
@@ -2971,7 +2967,7 @@ static int newdemo_read_frame_information(int rewrite)
 					break;
 
 				pause_game_world_time p;
-				if ((Newdemo_vcr_state == ND_STATE_REWINDING) || (Newdemo_vcr_state == ND_STATE_ONEFRAMEBACKWARD))
+				if (playing_backward())
 					loaded_level = old_level;
 				else {
 					loaded_level = new_level;
@@ -2990,7 +2986,7 @@ static int newdemo_read_frame_information(int rewrite)
 					return -1;
 				}
 
-				LoadLevel(static_cast<int>(loaded_level),1);
+				LoadLevel(loaded_level,1);
 				nd_playback_v_cntrlcen_destroyed = 0;
 			}
 
@@ -3001,7 +2997,13 @@ static int newdemo_read_frame_information(int rewrite)
 			{
 				unsigned num_walls;
 				nd_read_int (&num_walls);
-				Walls.set_count(num_walls);
+				if (num_walls > Walls.size())
+				{
+					nd_playback_v_bad_read = -1;
+					done = -1;
+					break;
+				}
+				Walls.set_count(static_cast<decltype(Walls.get_count())>(num_walls));
 				if (rewrite)
 					nd_write_int (Walls.get_count());
 				for (auto &w : vmwallptr)
@@ -3028,8 +3030,7 @@ static int newdemo_read_frame_information(int rewrite)
 						nd_write_byte (w.type);
 						nd_write_byte (underlying_value(w.flags));
 						nd_write_byte (underlying_value(w.state));
-						nd_write_short(underlying_value(side.tmap_num));
-						nd_write_short(underlying_value(side.tmap_num2));
+						nd_write_short(underlying_value(side.tmap_num), underlying_value(side.tmap_num2));
 					}
 				}
 
@@ -3313,7 +3314,7 @@ static window_event_result interpolate_frame(fix d_play, fix d_recorded)
 	auto &Objects = LevelUniqueObjectState.Objects;
 	auto &vmobjptr = Objects.vmptr;
 	fix factor;
-	static fix InterpolStep = fl2f(.01);
+	static fix InterpolStep = fl2f(.01f);
 
 	if (nd_playback_v_framecount < 1)
 		return window_event_result::ignored;
@@ -3386,7 +3387,7 @@ static window_event_result interpolate_frame(fix d_play, fix d_recorded)
 				}
 			}
 		}
-		InterpolStep = fl2f(.01);
+		InterpolStep = fl2f(.01f);
 	}
 
 	// get back to original position in the demo file.  Reread the current
@@ -3848,7 +3849,7 @@ try_again:
 		goto try_again;
 
 	//check to make sure name is ok
-	range_for (const unsigned c, filename)
+	range_for (const unsigned char c, filename)
 	{
 		if (!c)
 			break;
