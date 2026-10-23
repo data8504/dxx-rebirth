@@ -2682,6 +2682,187 @@ void wake_up_rendered_objects(const object &viewer, window_rendered_data &window
 }
 #endif
 
+namespace {
+
+// Both legacy formats store time relative to the capture clock in a 32-bit fix.
+fix object_rw_relative_time(const fix64 time)
+{
+	return static_cast<fix>(std::max(time - GameTime64, fix64{F1_0 * -18000}));
+}
+
+}
+
+// Savegames retain object links; network synchronization rebuilds them locally.
+void object_to_object_rw(const object &obj, object_rw *const obj_rw, const object_rw_context context)
+{
+	/* Avoid writing uninitialized bytes from inactive union members. */
+	*obj_rw = {};
+	DXX_POISON_DEFINED_VAR(*obj_rw, 0xfd);
+	obj_rw->type = obj.type;
+	obj_rw->signature     = static_cast<uint16_t>(obj.signature);
+	obj_rw->id            = obj.id;
+	if (context == object_rw_context::savegame)
+	{
+		obj_rw->next = static_cast<int16_t>(obj.next);
+		obj_rw->prev = static_cast<int16_t>(obj.prev);
+		obj_rw->attached_obj = static_cast<int16_t>(obj.attached_obj);
+	}
+	obj_rw->control_source  = underlying_value(obj.control_source);
+	obj_rw->movement_source = underlying_value(obj.movement_source);
+	const auto rtype = obj.render_type;
+	obj_rw->render_type   = underlying_value(rtype);
+	obj_rw->flags         = obj.flags;
+	obj_rw->segnum        = obj.segnum;
+	obj_rw->pos = obj.pos;
+	obj_rw->orient = obj.orient;
+	obj_rw->size          = obj.size;
+	obj_rw->shields       = obj.shields;
+	obj_rw->last_pos    = obj.pos;
+	obj_rw->contains_type = static_cast<int8_t>(underlying_value(obj.contains.type));
+	obj_rw->contains_id   = static_cast<int8_t>(underlying_value(obj.contains.id.robot));
+	obj_rw->contains_count= static_cast<int8_t>(obj.contains.count);
+	obj_rw->matcen_creator= obj.matcen_creator;
+	obj_rw->lifeleft      = obj.lifeleft;
+
+	switch (typename object::movement_type{obj_rw->movement_source})
+	{
+		case object::movement_type::None:
+			obj_rw->mtype = {};
+			break;
+		case object::movement_type::physics:
+			obj_rw->mtype.phys_info.velocity = obj.mtype.phys_info.velocity;
+			obj_rw->mtype.phys_info.thrust = obj.mtype.phys_info.thrust;
+			obj_rw->mtype.phys_info.mass        = obj.mtype.phys_info.mass;
+			obj_rw->mtype.phys_info.drag        = obj.mtype.phys_info.drag;
+			if (context == object_rw_context::savegame)
+				obj_rw->mtype.phys_info.obsolete_brakes = 0;
+			obj_rw->mtype.phys_info.rotvel = obj.mtype.phys_info.rotvel;
+			obj_rw->mtype.phys_info.rotthrust = obj.mtype.phys_info.rotthrust;
+			obj_rw->mtype.phys_info.turnroll    = obj.mtype.phys_info.turnroll;
+			obj_rw->mtype.phys_info.flags       = obj.mtype.phys_info.flags;
+			break;
+
+		case object::movement_type::spinning:
+			obj_rw->mtype.spin_rate = obj.mtype.spin_rate;
+			break;
+	}
+
+	switch (typename object::control_type{obj_rw->control_source})
+	{
+		case object::control_type::weapon:
+			obj_rw->ctype.laser_info.parent_type      = obj.ctype.laser_info.parent_type;
+			obj_rw->ctype.laser_info.parent_num       = static_cast<int16_t>(obj.ctype.laser_info.parent_num);
+			obj_rw->ctype.laser_info.parent_signature = static_cast<uint16_t>(obj.ctype.laser_info.parent_signature);
+			obj_rw->ctype.laser_info.creation_time = object_rw_relative_time(obj.ctype.laser_info.creation_time);
+			obj_rw->ctype.laser_info.last_hitobj      = obj.ctype.laser_info.get_last_hitobj();
+			obj_rw->ctype.laser_info.track_goal       = static_cast<int16_t>(obj.ctype.laser_info.track_goal);
+			obj_rw->ctype.laser_info.multiplier       = obj.ctype.laser_info.multiplier;
+			break;
+
+		case object::control_type::explosion:
+			obj_rw->ctype.expl_info.spawn_time    = obj.ctype.expl_info.spawn_time;
+			obj_rw->ctype.expl_info.delete_time   = obj.ctype.expl_info.delete_time;
+			obj_rw->ctype.expl_info.delete_objnum = static_cast<int16_t>(obj.ctype.expl_info.delete_objnum);
+			obj_rw->ctype.expl_info.attach_parent = static_cast<int16_t>(obj.ctype.expl_info.attach_parent);
+			obj_rw->ctype.expl_info.prev_attach   = static_cast<int16_t>(obj.ctype.expl_info.prev_attach);
+			obj_rw->ctype.expl_info.next_attach   = static_cast<int16_t>(obj.ctype.expl_info.next_attach);
+			break;
+
+		case object::control_type::ai:
+		{
+			obj_rw->ctype.ai_info.behavior               = static_cast<uint8_t>(obj.ctype.ai_info.behavior);
+			obj_rw->ctype.ai_info.flags[0] = static_cast<int8_t>(underlying_value(obj.ctype.ai_info.CURRENT_GUN));
+			obj_rw->ctype.ai_info.flags[1] = static_cast<int8_t>(underlying_value(obj.ctype.ai_info.CURRENT_STATE));
+			obj_rw->ctype.ai_info.flags[2] = static_cast<int8_t>(underlying_value(obj.ctype.ai_info.GOAL_STATE));
+			obj_rw->ctype.ai_info.flags[3] = obj.ctype.ai_info.PATH_DIR;
+#if DXX_BUILD_DESCENT == 1
+			obj_rw->ctype.ai_info.flags[4] = obj.ctype.ai_info.SUBMODE;
+#elif DXX_BUILD_DESCENT == 2
+			obj_rw->ctype.ai_info.flags[4] = obj.ctype.ai_info.SUB_FLAGS;
+#endif
+			obj_rw->ctype.ai_info.flags[5] = static_cast<int8_t>(underlying_value(obj.ctype.ai_info.GOALSIDE));
+			obj_rw->ctype.ai_info.flags[6] = obj.ctype.ai_info.CLOAKED;
+			obj_rw->ctype.ai_info.flags[7] = obj.ctype.ai_info.SKIP_AI_COUNT;
+			obj_rw->ctype.ai_info.flags[8] = obj.ctype.ai_info.REMOTE_OWNER;
+			obj_rw->ctype.ai_info.flags[9] = obj.ctype.ai_info.REMOTE_SLOT_NUM;
+			obj_rw->ctype.ai_info.hide_segment           = obj.ctype.ai_info.hide_segment;
+			obj_rw->ctype.ai_info.hide_index             = obj.ctype.ai_info.hide_index;
+			obj_rw->ctype.ai_info.path_length            = obj.ctype.ai_info.path_length;
+			obj_rw->ctype.ai_info.cur_path_index         = obj.ctype.ai_info.cur_path_index;
+			obj_rw->ctype.ai_info.danger_laser_num       = static_cast<int16_t>(obj.ctype.ai_info.danger_laser_num);
+			if (obj.ctype.ai_info.danger_laser_num != object_none)
+				obj_rw->ctype.ai_info.danger_laser_signature = static_cast<uint16_t>(obj.ctype.ai_info.danger_laser_signature);
+			else
+				obj_rw->ctype.ai_info.danger_laser_signature = 0;
+#if DXX_BUILD_DESCENT == 1
+			obj_rw->ctype.ai_info.follow_path_start_seg  = static_cast<int16_t>(segment_none);
+			obj_rw->ctype.ai_info.follow_path_end_seg    = static_cast<int16_t>(segment_none);
+#elif DXX_BUILD_DESCENT == 2
+			obj_rw->ctype.ai_info.dying_sound_playing    = obj.ctype.ai_info.dying_sound_playing;
+			if (obj.ctype.ai_info.dying_start_time == 0) // if bot not dead, anything but 0 will kill it
+				obj_rw->ctype.ai_info.dying_start_time = 0;
+			else
+				obj_rw->ctype.ai_info.dying_start_time = static_cast<fix>(obj.ctype.ai_info.dying_start_time - GameTime64);
+#endif
+			break;
+		}
+
+		case object::control_type::light:
+			obj_rw->ctype.light_info.intensity = obj.ctype.light_info.intensity;
+			break;
+
+		case object::control_type::powerup:
+			obj_rw->ctype.powerup_info.count         = obj.ctype.powerup_info.count;
+#if DXX_BUILD_DESCENT == 2
+			obj_rw->ctype.powerup_info.creation_time = object_rw_relative_time(obj.ctype.powerup_info.creation_time);
+			obj_rw->ctype.powerup_info.flags         = obj.ctype.powerup_info.flags;
+#endif
+			break;
+		case object::control_type::None:
+		case object::control_type::flying:
+		case object::control_type::slew:
+		case object::control_type::flythrough:
+		case object::control_type::repaircen:
+		case object::control_type::morph:
+		case object::control_type::debris:
+		case object::control_type::remote:
+		default:
+			break;
+	}
+
+	switch (rtype)
+	{
+		case render_type::RT_NONE:
+			if (obj.type != object_type::OBJ_GHOST) // Ghost players retain their polygon data in both legacy formats.
+				break;
+			[[fallthrough]];
+		case render_type::RT_MORPH:
+		case render_type::RT_POLYOBJ:
+		{
+			obj_rw->rtype.pobj_info.model_num                = underlying_value(obj.rtype.pobj_info.model_num.dsx);
+			for (std::size_t i = 0; i < MAX_SUBMODELS; ++i)
+				obj_rw->rtype.pobj_info.anim_angles[i] = obj.rtype.pobj_info.anim_angles[i];
+			obj_rw->rtype.pobj_info.subobj_flags             = obj.rtype.pobj_info.subobj_flags;
+			obj_rw->rtype.pobj_info.tmap_override            = obj.rtype.pobj_info.tmap_override;
+			obj_rw->rtype.pobj_info.alt_textures             = obj.rtype.pobj_info.alt_textures;
+			break;
+		}
+
+		case render_type::RT_WEAPON_VCLIP:
+		case render_type::RT_HOSTAGE:
+		case render_type::RT_POWERUP:
+		case render_type::RT_FIREBALL:
+			obj_rw->rtype.vclip_info.vclip_num = underlying_value(obj.rtype.vclip_info.vclip_num);
+			obj_rw->rtype.vclip_info.frametime = obj.rtype.vclip_info.frametime;
+			obj_rw->rtype.vclip_info.framenum  = static_cast<int8_t>(obj.rtype.vclip_info.framenum);
+			break;
+
+		case render_type::RT_LASER:
+			break;
+
+	}
+}
+
 // Swap endianess of given object_rw if swap == 1
 void object_rw_swap(object_rw *obj, const physfsx_endian swap)
 {
