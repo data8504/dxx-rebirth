@@ -2699,13 +2699,13 @@ void object_to_object_rw(const object &obj, object_rw *const obj_rw, const objec
 	*obj_rw = {};
 	DXX_POISON_DEFINED_VAR(*obj_rw, 0xfd);
 	obj_rw->type = obj.type;
-	obj_rw->signature     = static_cast<uint16_t>(obj.signature);
+	obj_rw->signature     = underlying_value(obj.signature);
 	obj_rw->id            = obj.id;
 	if (context == object_rw_context::savegame)
 	{
-		obj_rw->next = static_cast<int16_t>(obj.next);
-		obj_rw->prev = static_cast<int16_t>(obj.prev);
-		obj_rw->attached_obj = static_cast<int16_t>(obj.attached_obj);
+		obj_rw->next = obj.next;
+		obj_rw->prev = obj.prev;
+		obj_rw->attached_obj = obj.attached_obj;
 	}
 	obj_rw->control_source  = underlying_value(obj.control_source);
 	obj_rw->movement_source = underlying_value(obj.movement_source);
@@ -2718,9 +2718,9 @@ void object_to_object_rw(const object &obj, object_rw *const obj_rw, const objec
 	obj_rw->size          = obj.size;
 	obj_rw->shields       = obj.shields;
 	obj_rw->last_pos    = obj.pos;
-	obj_rw->contains_type = static_cast<int8_t>(underlying_value(obj.contains.type));
-	obj_rw->contains_id   = static_cast<int8_t>(underlying_value(obj.contains.id.robot));
-	obj_rw->contains_count= static_cast<int8_t>(obj.contains.count);
+	obj_rw->contains_type = underlying_value(obj.contains.type);
+	obj_rw->contains_id   = underlying_value(obj.contains.id.robot);
+	obj_rw->contains_count= obj.contains.count;
 	obj_rw->matcen_creator= obj.matcen_creator;
 	obj_rw->lifeleft      = obj.lifeleft;
 
@@ -2751,52 +2751,52 @@ void object_to_object_rw(const object &obj, object_rw *const obj_rw, const objec
 	{
 		case object::control_type::weapon:
 			obj_rw->ctype.laser_info.parent_type      = obj.ctype.laser_info.parent_type;
-			obj_rw->ctype.laser_info.parent_num       = static_cast<int16_t>(obj.ctype.laser_info.parent_num);
-			obj_rw->ctype.laser_info.parent_signature = static_cast<uint16_t>(obj.ctype.laser_info.parent_signature);
+			obj_rw->ctype.laser_info.parent_num       = obj.ctype.laser_info.parent_num;
+			obj_rw->ctype.laser_info.parent_signature = underlying_value(obj.ctype.laser_info.parent_signature);
 			obj_rw->ctype.laser_info.creation_time = object_rw_relative_time(obj.ctype.laser_info.creation_time);
 			obj_rw->ctype.laser_info.last_hitobj      = obj.ctype.laser_info.get_last_hitobj();
-			obj_rw->ctype.laser_info.track_goal       = static_cast<int16_t>(obj.ctype.laser_info.track_goal);
+			obj_rw->ctype.laser_info.track_goal       = obj.ctype.laser_info.track_goal;
 			obj_rw->ctype.laser_info.multiplier       = obj.ctype.laser_info.multiplier;
 			break;
 
 		case object::control_type::explosion:
 			obj_rw->ctype.expl_info.spawn_time    = obj.ctype.expl_info.spawn_time;
 			obj_rw->ctype.expl_info.delete_time   = obj.ctype.expl_info.delete_time;
-			obj_rw->ctype.expl_info.delete_objnum = static_cast<int16_t>(obj.ctype.expl_info.delete_objnum);
-			obj_rw->ctype.expl_info.attach_parent = static_cast<int16_t>(obj.ctype.expl_info.attach_parent);
-			obj_rw->ctype.expl_info.prev_attach   = static_cast<int16_t>(obj.ctype.expl_info.prev_attach);
-			obj_rw->ctype.expl_info.next_attach   = static_cast<int16_t>(obj.ctype.expl_info.next_attach);
+			obj_rw->ctype.expl_info.delete_objnum = obj.ctype.expl_info.delete_objnum;
+			obj_rw->ctype.expl_info.attach_parent = obj.ctype.expl_info.attach_parent;
+			obj_rw->ctype.expl_info.prev_attach   = obj.ctype.expl_info.prev_attach;
+			obj_rw->ctype.expl_info.next_attach   = obj.ctype.expl_info.next_attach;
 			break;
 
 		case object::control_type::ai:
 		{
-			obj_rw->ctype.ai_info.behavior               = static_cast<uint8_t>(obj.ctype.ai_info.behavior);
-			obj_rw->ctype.ai_info.flags[0] = static_cast<int8_t>(underlying_value(obj.ctype.ai_info.CURRENT_GUN));
-			obj_rw->ctype.ai_info.flags[1] = static_cast<int8_t>(underlying_value(obj.ctype.ai_info.CURRENT_STATE));
-			obj_rw->ctype.ai_info.flags[2] = static_cast<int8_t>(underlying_value(obj.ctype.ai_info.GOAL_STATE));
-			obj_rw->ctype.ai_info.flags[3] = obj.ctype.ai_info.PATH_DIR;
+			obj_rw->ctype.ai_info.behavior               = underlying_value(obj.ctype.ai_info.behavior);
+			obj_rw->ctype.ai_info.current_gun = underlying_value(obj.ctype.ai_info.CURRENT_GUN);
+			obj_rw->ctype.ai_info.current_state = underlying_value(obj.ctype.ai_info.CURRENT_STATE);
+			obj_rw->ctype.ai_info.goal_state = underlying_value(obj.ctype.ai_info.GOAL_STATE);
+			obj_rw->ctype.ai_info.path_dir = obj.ctype.ai_info.PATH_DIR;
 #if DXX_BUILD_DESCENT == 1
-			obj_rw->ctype.ai_info.flags[4] = obj.ctype.ai_info.SUBMODE;
+			obj_rw->ctype.ai_info.submode = obj.ctype.ai_info.SUBMODE;
 #elif DXX_BUILD_DESCENT == 2
-			obj_rw->ctype.ai_info.flags[4] = obj.ctype.ai_info.SUB_FLAGS;
+			obj_rw->ctype.ai_info.sub_flags = obj.ctype.ai_info.SUB_FLAGS;
 #endif
-			obj_rw->ctype.ai_info.flags[5] = static_cast<int8_t>(underlying_value(obj.ctype.ai_info.GOALSIDE));
-			obj_rw->ctype.ai_info.flags[6] = obj.ctype.ai_info.CLOAKED;
-			obj_rw->ctype.ai_info.flags[7] = obj.ctype.ai_info.SKIP_AI_COUNT;
-			obj_rw->ctype.ai_info.flags[8] = obj.ctype.ai_info.REMOTE_OWNER;
-			obj_rw->ctype.ai_info.flags[9] = obj.ctype.ai_info.REMOTE_SLOT_NUM;
+			obj_rw->ctype.ai_info.goal_side = underlying_value(obj.ctype.ai_info.GOALSIDE);
+			obj_rw->ctype.ai_info.cloaked = obj.ctype.ai_info.CLOAKED;
+			obj_rw->ctype.ai_info.skip_ai_count = obj.ctype.ai_info.SKIP_AI_COUNT;
+			obj_rw->ctype.ai_info.remote_owner = obj.ctype.ai_info.REMOTE_OWNER;
+			obj_rw->ctype.ai_info.remote_slot_num = obj.ctype.ai_info.REMOTE_SLOT_NUM;
 			obj_rw->ctype.ai_info.hide_segment           = obj.ctype.ai_info.hide_segment;
 			obj_rw->ctype.ai_info.hide_index             = obj.ctype.ai_info.hide_index;
 			obj_rw->ctype.ai_info.path_length            = obj.ctype.ai_info.path_length;
 			obj_rw->ctype.ai_info.cur_path_index         = obj.ctype.ai_info.cur_path_index;
-			obj_rw->ctype.ai_info.danger_laser_num       = static_cast<int16_t>(obj.ctype.ai_info.danger_laser_num);
+			obj_rw->ctype.ai_info.danger_laser_num       = obj.ctype.ai_info.danger_laser_num;
 			if (obj.ctype.ai_info.danger_laser_num != object_none)
-				obj_rw->ctype.ai_info.danger_laser_signature = static_cast<uint16_t>(obj.ctype.ai_info.danger_laser_signature);
+				obj_rw->ctype.ai_info.danger_laser_signature = underlying_value(obj.ctype.ai_info.danger_laser_signature);
 			else
 				obj_rw->ctype.ai_info.danger_laser_signature = 0;
 #if DXX_BUILD_DESCENT == 1
-			obj_rw->ctype.ai_info.follow_path_start_seg  = static_cast<int16_t>(segment_none);
-			obj_rw->ctype.ai_info.follow_path_end_seg    = static_cast<int16_t>(segment_none);
+			obj_rw->ctype.ai_info.follow_path_start_seg  = segment_none;
+			obj_rw->ctype.ai_info.follow_path_end_seg    = segment_none;
 #elif DXX_BUILD_DESCENT == 2
 			obj_rw->ctype.ai_info.dying_sound_playing    = obj.ctype.ai_info.dying_sound_playing;
 			if (obj.ctype.ai_info.dying_start_time == 0) // if bot not dead, anything but 0 will kill it
@@ -2854,7 +2854,7 @@ void object_to_object_rw(const object &obj, object_rw *const obj_rw, const objec
 		case render_type::RT_FIREBALL:
 			obj_rw->rtype.vclip_info.vclip_num = underlying_value(obj.rtype.vclip_info.vclip_num);
 			obj_rw->rtype.vclip_info.frametime = obj.rtype.vclip_info.frametime;
-			obj_rw->rtype.vclip_info.framenum  = static_cast<int8_t>(obj.rtype.vclip_info.framenum);
+			obj_rw->rtype.vclip_info.framenum  = obj.rtype.vclip_info.framenum;
 			break;
 
 		case render_type::RT_LASER:
@@ -2863,6 +2863,9 @@ void object_to_object_rw(const object &obj, object_rw *const obj_rw, const objec
 	}
 }
 
+// Some 32-bit legacy slots are wider than their live counterparts. Preserve
+// the existing low-bit truncation for signatures and polygon flags/selectors;
+// model, vclip and texture indices use their separate validation paths.
 void object_rw_to_object(const object_rw *const obj_rw, object &obj, const object_rw_context context)
 {
 	obj = {};
@@ -2879,8 +2882,8 @@ void object_rw_to_object(const object_rw *const obj_rw, object &obj, const objec
 	obj.id            = obj_rw->id;
 	if (context == object_rw_context::savegame)
 	{
-		obj.next = static_cast<objnum_t>(obj_rw->next);
-		obj.prev = static_cast<objnum_t>(obj_rw->prev);
+		obj.next = obj_rw->next;
+		obj.prev = obj_rw->prev;
 	}
 	obj.control_source  = typename object::control_type{obj_rw->control_source};
 	obj.movement_source  = typename object::movement_type{obj_rw->movement_source};
@@ -2893,12 +2896,12 @@ void object_rw_to_object(const object_rw *const obj_rw, object &obj, const objec
 	}
 	obj.flags         = obj_rw->flags;
 	obj.segnum    = vmsegidx_t::check_nothrow_index(obj_rw->segnum).value_or(segment_none);
-	obj.attached_obj = context == object_rw_context::savegame ? static_cast<objnum_t>(obj_rw->attached_obj) : object_none;
+	obj.attached_obj = context == object_rw_context::savegame ? obj_rw->attached_obj : object_none;
 	obj.pos = obj_rw->pos;
 	obj.orient = obj_rw->orient;
 	obj.size          = obj_rw->size;
 	obj.shields       = obj_rw->shields;
-	obj.contains = build_contained_object_parameters_from_untrusted(static_cast<uint8_t>(obj_rw->contains_type), static_cast<uint8_t>(obj_rw->contains_id), static_cast<uint8_t>(obj_rw->contains_count));
+	obj.contains = build_contained_object_parameters_from_untrusted(obj_rw->contains_type, obj_rw->contains_id, obj_rw->contains_count);
 	obj.matcen_creator= obj_rw->matcen_creator;
 	obj.lifeleft      = obj_rw->lifeleft;
 
@@ -2926,7 +2929,7 @@ void object_rw_to_object(const object_rw *const obj_rw, object &obj, const objec
 	{
 		case object::control_type::weapon:
 			obj.ctype.laser_info.parent_type      = obj_rw->ctype.laser_info.parent_type;
-			obj.ctype.laser_info.parent_num       = static_cast<objnum_t>(obj_rw->ctype.laser_info.parent_num);
+			obj.ctype.laser_info.parent_num       = obj_rw->ctype.laser_info.parent_num;
 			obj.ctype.laser_info.parent_signature = object_signature_t{static_cast<uint16_t>(obj_rw->ctype.laser_info.parent_signature)};
 			obj.ctype.laser_info.creation_time    = obj_rw->ctype.laser_info.creation_time;
 			/* Use vcobjidx_t so that `object_none` fails the test and uses the
@@ -2942,7 +2945,7 @@ void object_rw_to_object(const object_rw *const obj_rw, object &obj, const objec
 				obj.ctype.laser_info.reset_hitobj(*last_hitobj);
 			else
 				obj.ctype.laser_info.clear_hitobj();
-			obj.ctype.laser_info.track_goal       = static_cast<objnum_t>(obj_rw->ctype.laser_info.track_goal);
+			obj.ctype.laser_info.track_goal       = obj_rw->ctype.laser_info.track_goal;
 			obj.ctype.laser_info.multiplier       = obj_rw->ctype.laser_info.multiplier;
 #if DXX_BUILD_DESCENT == 2
 			obj.ctype.laser_info.last_afterburner_time = 0;
@@ -2952,38 +2955,38 @@ void object_rw_to_object(const object_rw *const obj_rw, object &obj, const objec
 		case object::control_type::explosion:
 			obj.ctype.expl_info.spawn_time    = obj_rw->ctype.expl_info.spawn_time;
 			obj.ctype.expl_info.delete_time   = obj_rw->ctype.expl_info.delete_time;
-			obj.ctype.expl_info.delete_objnum = static_cast<objnum_t>(obj_rw->ctype.expl_info.delete_objnum);
-			obj.ctype.expl_info.attach_parent = static_cast<objnum_t>(obj_rw->ctype.expl_info.attach_parent);
-			obj.ctype.expl_info.prev_attach   = static_cast<objnum_t>(obj_rw->ctype.expl_info.prev_attach);
-			obj.ctype.expl_info.next_attach   = static_cast<objnum_t>(obj_rw->ctype.expl_info.next_attach);
+			obj.ctype.expl_info.delete_objnum = obj_rw->ctype.expl_info.delete_objnum;
+			obj.ctype.expl_info.attach_parent = obj_rw->ctype.expl_info.attach_parent;
+			obj.ctype.expl_info.prev_attach   = obj_rw->ctype.expl_info.prev_attach;
+			obj.ctype.expl_info.next_attach   = obj_rw->ctype.expl_info.next_attach;
 			break;
 
 		case object::control_type::ai:
 		{
 			obj.ctype.ai_info.behavior               = static_cast<ai_behavior>(obj_rw->ctype.ai_info.behavior);
 			{
-				const uint8_t gun_num = static_cast<uint8_t>(obj_rw->ctype.ai_info.flags[0]);
+				const uint8_t gun_num = obj_rw->ctype.ai_info.current_gun;
 				obj.ctype.ai_info.CURRENT_GUN = (gun_num < MAX_GUNS) ? robot_gun_number{gun_num} : robot_gun_number{};
 			}
 			const auto fallback_state = context == object_rw_context::savegame ? ai_static_state::AIS_REST : ai_static_state::AIS_NONE;
-			obj.ctype.ai_info.CURRENT_STATE = build_ai_state_from_untrusted(static_cast<uint8_t>(obj_rw->ctype.ai_info.flags[1])).value_or(fallback_state);
-			obj.ctype.ai_info.GOAL_STATE = build_ai_state_from_untrusted(static_cast<uint8_t>(obj_rw->ctype.ai_info.flags[2])).value_or(fallback_state);
-			obj.ctype.ai_info.PATH_DIR = obj_rw->ctype.ai_info.flags[3];
+			obj.ctype.ai_info.CURRENT_STATE = build_ai_state_from_untrusted(obj_rw->ctype.ai_info.current_state).value_or(fallback_state);
+			obj.ctype.ai_info.GOAL_STATE = build_ai_state_from_untrusted(obj_rw->ctype.ai_info.goal_state).value_or(fallback_state);
+			obj.ctype.ai_info.PATH_DIR = obj_rw->ctype.ai_info.path_dir;
 #if DXX_BUILD_DESCENT == 1
-			obj.ctype.ai_info.SUBMODE = obj_rw->ctype.ai_info.flags[4];
+			obj.ctype.ai_info.SUBMODE = obj_rw->ctype.ai_info.submode;
 #elif DXX_BUILD_DESCENT == 2
-			obj.ctype.ai_info.SUB_FLAGS = obj_rw->ctype.ai_info.flags[4];
+			obj.ctype.ai_info.SUB_FLAGS = obj_rw->ctype.ai_info.sub_flags;
 #endif
-			obj.ctype.ai_info.GOALSIDE = build_sidenum_from_untrusted(static_cast<uint8_t>(obj_rw->ctype.ai_info.flags[5])).value_or(sidenum_t::WLEFT);
-			obj.ctype.ai_info.CLOAKED = obj_rw->ctype.ai_info.flags[6];
-			obj.ctype.ai_info.SKIP_AI_COUNT = obj_rw->ctype.ai_info.flags[7];
-			obj.ctype.ai_info.REMOTE_OWNER = obj_rw->ctype.ai_info.flags[8];
-			obj.ctype.ai_info.REMOTE_SLOT_NUM = obj_rw->ctype.ai_info.flags[9];
+			obj.ctype.ai_info.GOALSIDE = build_sidenum_from_untrusted(obj_rw->ctype.ai_info.goal_side).value_or(sidenum_t::WLEFT);
+			obj.ctype.ai_info.CLOAKED = obj_rw->ctype.ai_info.cloaked;
+			obj.ctype.ai_info.SKIP_AI_COUNT = obj_rw->ctype.ai_info.skip_ai_count;
+			obj.ctype.ai_info.REMOTE_OWNER = obj_rw->ctype.ai_info.remote_owner;
+			obj.ctype.ai_info.REMOTE_SLOT_NUM = obj_rw->ctype.ai_info.remote_slot_num;
 			obj.ctype.ai_info.hide_segment = vmsegidx_t::check_nothrow_index(obj_rw->ctype.ai_info.hide_segment).value_or(segment_none);
 			obj.ctype.ai_info.hide_index             = obj_rw->ctype.ai_info.hide_index;
 			obj.ctype.ai_info.path_length            = obj_rw->ctype.ai_info.path_length;
 			obj.ctype.ai_info.cur_path_index         = obj_rw->ctype.ai_info.cur_path_index;
-			obj.ctype.ai_info.danger_laser_num       = static_cast<objnum_t>(obj_rw->ctype.ai_info.danger_laser_num);
+			obj.ctype.ai_info.danger_laser_num       = obj_rw->ctype.ai_info.danger_laser_num;
 			if (obj.ctype.ai_info.danger_laser_num != object_none)
 				obj.ctype.ai_info.danger_laser_signature = object_signature_t{static_cast<uint16_t>(obj_rw->ctype.ai_info.danger_laser_signature)};
 #if DXX_BUILD_DESCENT == 1
@@ -3053,7 +3056,7 @@ void object_rw_to_object(const object_rw *const obj_rw, object &obj, const objec
 		case render_type::RT_MORPH:
 		case render_type::RT_POLYOBJ:
 		{
-			obj.rtype.pobj_info.model_num.dsx            = build_polygon_model_index_from_untrusted(static_cast<unsigned>(obj_rw->rtype.pobj_info.model_num));
+			obj.rtype.pobj_info.model_num.dsx            = build_polygon_model_index_from_untrusted(obj_rw->rtype.pobj_info.model_num);
 			for (std::size_t i = 0; i < MAX_SUBMODELS; ++i)
 				obj.rtype.pobj_info.anim_angles[i] = obj_rw->rtype.pobj_info.anim_angles[i];
 			obj.rtype.pobj_info.subobj_flags             = static_cast<uint16_t>(obj_rw->rtype.pobj_info.subobj_flags);
@@ -3069,9 +3072,9 @@ void object_rw_to_object(const object_rw *const obj_rw, object &obj, const objec
 		case render_type::RT_HOSTAGE:
 		case render_type::RT_POWERUP:
 		case render_type::RT_FIREBALL:
-			obj.rtype.vclip_info.vclip_num = build_vclip_index_from_untrusted(static_cast<unsigned>(obj_rw->rtype.vclip_info.vclip_num));
+			obj.rtype.vclip_info.vclip_num = build_vclip_index_from_untrusted(obj_rw->rtype.vclip_info.vclip_num);
 			obj.rtype.vclip_info.frametime = obj_rw->rtype.vclip_info.frametime;
-			obj.rtype.vclip_info.framenum  = static_cast<uint8_t>(obj_rw->rtype.vclip_info.framenum);
+			obj.rtype.vclip_info.framenum  = obj_rw->rtype.vclip_info.framenum;
 			break;
 
 		case render_type::RT_LASER:

@@ -28,6 +28,7 @@ COPYRIGHT 1993-1999 PARALLAX SOFTWARE CORPORATION.  ALL RIGHTS RESERVED.
 
 #pragma once
 
+#include <cstddef>
 #include <physfs.h>
 #include <optional>
 #include "polyobj.h"
@@ -257,25 +258,55 @@ struct ai_static : public prohibit_void_ptr<>
 struct ai_static_rw
 {
 	ubyte   behavior;               //
-	int8_t  flags[11];    // various flags, meaning defined by constants
+	uint8_t current_gun;
+	uint8_t current_state;
+	uint8_t goal_state;
+	int8_t path_dir;
+#if DXX_BUILD_DESCENT == 1
+	int8_t submode;
+#elif DXX_BUILD_DESCENT == 2
+	int8_t sub_flags;
+#endif
+	uint8_t goal_side;
+	int8_t cloaked;
+	int8_t skip_ai_count;
+	int8_t remote_owner;
+	int8_t remote_slot_num;
+	uint8_t reserved;
 	uint16_t hide_segment;           // Segment to go to for hiding.
 	short   hide_index;             // Index in Path_seg_points
 	short   path_length;            // Length of hide path.
 #if DXX_BUILD_DESCENT == 1
 	short   cur_path_index;         // Current index in path.
-	short   follow_path_start_seg;  // Start segment for robot which follows path.
-	short   follow_path_end_seg;    // End segment for robot which follows path.
-	int     danger_laser_signature;
-	short   danger_laser_num;
+	uint16_t follow_path_start_seg;  // Start segment for robot which follows path.
+	uint16_t follow_path_end_seg;    // End segment for robot which follows path.
+	uint32_t danger_laser_signature;
+	uint16_t danger_laser_num;
 #elif DXX_BUILD_DESCENT == 2
 	sbyte   cur_path_index;         // Current index in path.
 	sbyte   dying_sound_playing;    // !0 if this robot is playing its dying sound.
-	short   danger_laser_num;
-	int     danger_laser_signature;
+	uint16_t danger_laser_num;
+	uint32_t danger_laser_signature;
 	fix     dying_start_time;       // Time at which this robot started dying.
 #endif
 } __pack__;
 
+// Each named byte retains its position in the original eleven-byte flags array.
+static_assert(offsetof(ai_static_rw, behavior) == 0 && offsetof(ai_static_rw, current_gun) == 1);
+static_assert(offsetof(ai_static_rw, current_state) == 2 && offsetof(ai_static_rw, goal_state) == 3);
+static_assert(offsetof(ai_static_rw, path_dir) == 4);
+#if DXX_BUILD_DESCENT == 1
+static_assert(offsetof(ai_static_rw, submode) == 5);
+static_assert(offsetof(ai_static_rw, follow_path_start_seg) == 20 && offsetof(ai_static_rw, follow_path_end_seg) == 22);
+static_assert(offsetof(ai_static_rw, danger_laser_signature) == 24 && offsetof(ai_static_rw, danger_laser_num) == 28);
+#elif DXX_BUILD_DESCENT == 2
+static_assert(offsetof(ai_static_rw, sub_flags) == 5);
+static_assert(offsetof(ai_static_rw, danger_laser_num) == 20 && offsetof(ai_static_rw, danger_laser_signature) == 22);
+#endif
+static_assert(offsetof(ai_static_rw, goal_side) == 6 && offsetof(ai_static_rw, cloaked) == 7);
+static_assert(offsetof(ai_static_rw, skip_ai_count) == 8 && offsetof(ai_static_rw, remote_owner) == 9);
+static_assert(offsetof(ai_static_rw, remote_slot_num) == 10 && offsetof(ai_static_rw, reserved) == 11);
+static_assert(offsetof(ai_static_rw, hide_segment) == 12);
 static_assert(sizeof(ai_static_rw) == 30);
 
 // Same as above but structure Savegames expect
