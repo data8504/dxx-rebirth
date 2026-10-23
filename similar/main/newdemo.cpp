@@ -815,8 +815,10 @@ static void nd_read_object(const vmobjptridx_t obj)
 		if (tmo==-1)
 			obj->rtype.pobj_info.tmap_override = texture_index{UINT16_MAX};
 		else {
-			auto xlated_tmo{tmap_xlate_table[tmo]};
-			if (xlated_tmo >= Textures.size())
+			auto xlated_tmo = texture_index{};
+			if (tmo >= 0 && std::cmp_less(tmo, tmap_xlate_table.size()))
+				xlated_tmo = tmap_xlate_table[static_cast<std::size_t>(tmo)];
+			if (tmo < 0 || std::cmp_greater_equal(tmo, tmap_xlate_table.size()) || xlated_tmo >= Textures.size())
 			{
 				[[unlikely]];
 				con_printf(CON_URGENT, "Invalid texture override in demo: tmo=%i, xlated_tmo=%hu; setting xlated_tmo=0", tmo, underlying_value(xlated_tmo));
