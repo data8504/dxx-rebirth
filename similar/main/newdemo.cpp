@@ -373,25 +373,28 @@ static int newdemo_write(const std::integral auto *buffer, const std::size_t els
 	return _newdemo_write(buffer, elsize, nelem);
 }
 
-/*
- *  The next bunch of files taken from Matt's gamesave.c.  We have to modify
- *  these since the demo must save more information about objects that
- *  just a gamesave
-*/
-
-static void nd_write_byte(const int8_t b)
+// The field name fixes the wire width.  Conversion here preserves the low
+// bits, including negative sentinels; recording retains the host byte order.
+template <std::unsigned_integral Wire>
+static void demo_write_values(const auto ...values)
 {
-	newdemo_write(&b, 1, 1);
+	const std::array<Wire, sizeof...(values)> fields{{static_cast<Wire>(values)...}};
+	newdemo_write(fields.data(), sizeof(Wire), fields.size());
 }
 
-static void nd_write_short(short s)
+static void nd_write_byte(const auto ...values)
 {
-	newdemo_write(&s, 2, 1);
+	demo_write_values<uint8_t>(values...);
 }
 
-static void nd_write_int(int i)
+static void nd_write_short(const auto ...values)
 {
-	newdemo_write(&i, 4, 1);
+	demo_write_values<uint16_t>(values...);
+}
+
+static void nd_write_int(const auto ...values)
+{
+	demo_write_values<uint32_t>(values...);
 }
 
 static void nd_write_string(const char *str)
@@ -432,129 +435,92 @@ static void nd_write_shortpos(const object_base &obj)
 	const auto rtype = obj.render_type;
 	if ((rtype == render_type::RT_POLYOBJ || rtype == render_type::RT_HOSTAGE || rtype == render_type::RT_MORPH) || obj.type == object_type::OBJ_CAMERA)
 	{
-		uint8_t mask{0};
-		range_for (auto &i, sp.bytemat)
+		bool has_orientation{false};
+		range_for (const auto i, sp.bytemat)
 		{
 			nd_write_byte(i);
-			mask |= i;
+			has_orientation |= (i != 0);
 		}
-		if (!mask)
+		if (!has_orientation)
 		{
 			Int3();         // contact Allender about this.
 		}
 	}
 
-	nd_write_short(sp.xo);
-	nd_write_short(sp.yo);
-	nd_write_short(sp.zo);
-	nd_write_short(sp.segment);
-	nd_write_short(sp.velx);
-	nd_write_short(sp.vely);
-	nd_write_short(sp.velz);
+	nd_write_short(sp.xo, sp.yo, sp.zo, sp.segment, sp.velx, sp.vely, sp.velz);
 }
 
-static void nd_read_byte(int8_t *const b)
+template <std::unsigned_integral Wire, typename T = Wire>
+static T demo_read_value()
 {
-	newdemo_read(b, 1, 1);
+	Wire value{};
+	newdemo_read(&value, sizeof(Wire), 1);
+	if constexpr (sizeof(Wire) > 1)
+		if (swap_endian)
+			value = std::byteswap(value);
+	return static_cast<T>(value);
 }
 
-static void nd_read_byte(uint8_t *const b)
+template <typename T = int8_t>
+static T nd_read_byte()
 {
-	nd_read_byte(reinterpret_cast<int8_t *>(b));
+	return demo_read_value<uint8_t, T>();
 }
 
-static void nd_read_short(int16_t *const s)
+template <typename T = int16_t>
+static T nd_read_short()
 {
-	newdemo_read(s, 2, 1);
-	if (swap_endian)
-		*s = SWAPSHORT(*s);
+	return demo_read_value<uint16_t, T>();
 }
 
-static void nd_read_short(uint16_t *const s)
+template <typename T = int32_t>
+static T nd_read_int()
 {
-	nd_read_short(reinterpret_cast<int16_t *>(s));
+	return demo_read_value<uint32_t, T>();
 }
 
-static void nd_read_segnum16(segnum_t &s)
+static void nd_read_byte(std::integral auto *value)
 {
-	uint16_t i;
-	nd_read_short(&i);
-	s = segnum_t{i};
+	*value = nd_read_byte<std::remove_reference_t<decltype(*value)>>();
 }
 
-static void nd_read_objnum16(objnum_t &o)
+static void nd_read_short(std::integral auto *value)
 {
-	short s;
-	nd_read_short(&s);
-	o = s;
+	*value = nd_read_short<std::remove_reference_t<decltype(*value)>>();
 }
 
-static void nd_read_int(int *i)
+static void nd_read_int(std::integral auto *value)
 {
-	newdemo_read(i, 4, 1);
-	if (swap_endian)
-		*i = SWAPINT(*i);
+	*value = nd_read_int<std::remove_reference_t<decltype(*value)>>();
 }
 
-#if DXX_BUILD_DESCENT == 2
-static void nd_read_int(unsigned *i)
-{
-	newdemo_read(i, 4, 1);
-	if (swap_endian)
-		*i = SWAPINT(*i);
-}
-#endif
-
-static void nd_read_segnum32(segnum_t &s)
-{
-	int32_t i;
-	nd_read_int(&i);
-	s = segnum_t{static_cast<uint16_t>(i)};
-}
-
-static void nd_read_objnum32(objnum_t &o)
-{
-	int i;
-	nd_read_int(&i);
-	o = i;
-}
+static void nd_read_segnum16(segnum_t &s) { s = nd_read_short<segnum_t>(); }
+static void nd_read_objnum16(objnum_t &o) { o = nd_read_short<objnum_t>(); }
+static void nd_read_segnum32(segnum_t &s) { s = nd_read_int<segnum_t>(); }
+static void nd_read_objnum32(objnum_t &o) { o = nd_read_int<objnum_t>(); }
 
 static void nd_read_string(const std::span<char> str)
 {
-	sbyte len;
-
-	nd_read_byte(&len);
-	if (static_cast<unsigned>(len) > str.size())
+	const auto length = nd_read_byte<uint8_t>();
+	if (length > INT8_MAX || length > str.size())
 		throw std::runtime_error("demo string too long");
-	newdemo_read(str.data(), len, 1);
+	newdemo_read(str.data(), length, 1);
 }
 
-static void nd_read_fix(fix *f)
-{
-	newdemo_read(f, sizeof(fix), 1);
-	if (swap_endian)
-		*f = SWAPINT(*f);
-}
-
-static void nd_read_fixang(fixang *f)
-{
-	newdemo_read(f, sizeof(fixang), 1);
-	if (swap_endian)
-		*f = SWAPSHORT(*f);
-}
+static void nd_read_fix(fix *value) { nd_read_int(value); }
 
 static void nd_read_vector(vms_vector &v)
 {
-	nd_read_fix(&v.x);
-	nd_read_fix(&v.y);
-	nd_read_fix(&v.z);
+	nd_read_int(&v.x);
+	nd_read_int(&v.y);
+	nd_read_int(&v.z);
 }
 
 static void nd_read_angvec(vms_angvec &v)
 {
-	nd_read_fixang(&v.p);
-	nd_read_fixang(&v.b);
-	nd_read_fixang(&v.h);
+	nd_read_short(&v.p);
+	nd_read_short(&v.b);
+	nd_read_short(&v.h);
 }
 
 static void nd_read_shortpos(object_base &obj)
