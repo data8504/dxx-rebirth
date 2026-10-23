@@ -1791,7 +1791,14 @@ static int newdemo_read_demo_start(const purpose_type purpose)
 
 			if (purpose != purpose_type::rewrite)
 				multi_new_game();
-			N_players = static_cast<unsigned>(nd_read_byte<int8_t>());
+			const auto recorded_player_count = nd_read_byte<uint8_t>();
+			if (nd_playback_v_bad_read || recorded_player_count > Players.size())
+			{
+				nd_playback_v_bad_read = -1;
+				nm_messagebox(menu_title{nullptr}, {TXT_OK}, "%s %s", TXT_CANT_PLAYBACK, TXT_DEMO_CORRUPT);
+				return 1;
+			}
+			N_players = recorded_player_count;
 			if (purpose == purpose_type::rewrite)
 				nd_write_byte(N_players);
 			range_for (auto &i, partial_range(Players, N_players)) {
@@ -3242,7 +3249,15 @@ window_event_result newdemo_goto_end(int to_rewrite)
 	player_info.laser_level = nd_read_byte<laser_level>();
 
 	if (+(Newdemo_game_mode & GM_MULTI)) {
-		N_players = static_cast<unsigned>(nd_read_byte<int8_t>());
+		const auto recorded_player_count = nd_read_byte<uint8_t>();
+		if (nd_playback_v_bad_read || recorded_player_count > Players.size())
+		{
+			nd_playback_v_bad_read = -1;
+			if (!to_rewrite)
+				newdemo_stop_playback();
+			return window_event_result::close;
+		}
+		N_players = recorded_player_count;
 		range_for (auto &i, partial_range(Players, N_players)) {
 			nd_read_string(i.callsign.buffer());
 			i.connected = nd_read_byte<player_connection_status>();
@@ -4034,11 +4049,13 @@ int newdemo_swap_endian(const char *filename)
 
 	while (newdemo_read_frame_information(1) == 1) {}	// rewrite all frames
 
-	newdemo_goto_end(1);	// get end of demo data
-	newdemo_write_end();	// and write it
+	if (!nd_playback_v_bad_read)
+		newdemo_goto_end(1);	// get end of demo data
+	if (!nd_playback_v_bad_read)
+		newdemo_write_end();	// and write it
 
 	swap_endian = 0;
-	complete = std::cmp_equal(nd_playback_v_demosize, Newdemo_num_written);
+	complete = !nd_playback_v_bad_read && std::cmp_equal(nd_playback_v_demosize, Newdemo_num_written);
 	infile.reset();
 	outfile.reset();
 
