@@ -196,7 +196,7 @@ static void nd_render_extras (ubyte which,const object &obj);
 static int swap_endian = 0;
 
 // playback variables
-static unsigned int nd_playback_v_demosize;
+static PHYSFS_sint64 nd_playback_v_demosize;
 static callsign_t nd_playback_v_save_callsign;
 static sbyte nd_playback_v_at_eof;
 static sbyte nd_playback_v_cntrlcen_destroyed = 0;
@@ -245,10 +245,10 @@ constexpr std::integral_constant<int, 0> shareware{};
 
 int newdemo_get_percent_done()	{
 	if ( Newdemo_state == ND_STATE_PLAYBACK ) {
-		return (PHYSFS_tell(infile) * 100) / nd_playback_v_demosize;
+		return static_cast<int>((PHYSFS_tell(infile) * 100) / nd_playback_v_demosize);
 	}
 	if ( Newdemo_state == ND_STATE_RECORDING ) {
-		return PHYSFS_tell(outfile);
+		return static_cast<int>(std::min<PHYSFS_sint64>(PHYSFS_tell(outfile), std::numeric_limits<int>::max()));
 	}
 	return 0;
 }
@@ -326,6 +326,12 @@ static std::size_t _newdemo_read(void *const buffer, const std::size_t elsize, c
 static std::size_t newdemo_read(std::integral auto *const buffer, const std::size_t elsize, const std::size_t nelem)
 {
 	return _newdemo_read(buffer, {elsize}, {nelem});
+}
+
+static void nd_seek(const PHYSFS_sint64 offset, const int origin = SEEK_SET)
+{
+	if (PHYSFSX_fseek(infile, offset, origin))
+		nd_playback_v_bad_read = -1;
 }
 
 namespace dsx {
@@ -1935,7 +1941,7 @@ static int newdemo_read_demo_start(const purpose_type purpose)
 			Primary_weapon = static_cast<primary_weapon_index>(Secondary_weapon.get_active());
 			Secondary_weapon = static_cast<secondary_weapon_index>(c);
 		} else
-			PHYSFS_seek(infile, PHYSFS_tell(infile) - 1);
+			nd_seek(-1, SEEK_CUR);
 	}
 #endif
 
@@ -3289,7 +3295,7 @@ static int newdemo_read_frame_information(int rewrite)
 
 		case ND_EVENT_EOF: {
 			done=-1;
-			PHYSFS_seek(infile, PHYSFS_tell(infile) - 1);        // get back to the EOF marker
+			nd_seek(-1, SEEK_CUR);        // get back to the EOF marker
 			nd_playback_v_at_eof = 1;
 			nd_playback_v_framecount++;
 			break;
@@ -3343,7 +3349,7 @@ window_event_result newdemo_goto_beginning()
 {
 	//if (nd_playback_v_framecount == 0)
 	//	return;
-	PHYSFS_seek(infile, 0);
+	nd_seek(0);
 	Newdemo_vcr_state = ND_STATE_PLAYBACK;
 	if (newdemo_read_demo_start(purpose_type::chose_play))
 		newdemo_stop_playback();
@@ -3368,7 +3374,7 @@ window_event_result newdemo_goto_end(int to_rewrite)
 	ubyte energy{0}, shield=0;
 	int loc{0}, bint=0;
 
-	PHYSFSX_fseek(infile, -2, SEEK_END);
+	nd_seek(-2, SEEK_END);
 	nd_read_byte(&level);
 
 	if (!to_rewrite)
@@ -3398,7 +3404,7 @@ window_event_result newdemo_goto_end(int to_rewrite)
 	if (shareware)
 	{
 		if (+(Newdemo_game_mode & GM_MULTI)) {
-			PHYSFSX_fseek(infile, -10, SEEK_END);
+			nd_seek(-10, SEEK_END);
 			nd_read_byte(&cloaked);
 			for (playernum_t i = 0; i < MAX_PLAYERS; i++)
 			{
@@ -3415,15 +3421,15 @@ window_event_result newdemo_goto_end(int to_rewrite)
 		if (to_rewrite)
 			return window_event_result::handled;
 
-		PHYSFSX_fseek(infile, -12, SEEK_END);
+		nd_seek(-12, SEEK_END);
 		nd_read_short(&frame_length);
 	}
 	else
 #endif
 	{
-	PHYSFSX_fseek(infile, -4, SEEK_END);
+	nd_seek(-4, SEEK_END);
 	nd_read_short(&byte_count);
-	PHYSFSX_fseek(infile, -2 - byte_count, SEEK_CUR);
+	nd_seek(-2 - byte_count, SEEK_CUR);
 
 	nd_read_short(&frame_length);
 	loc = PHYSFS_tell(infile);
@@ -3513,12 +3519,12 @@ window_event_result newdemo_goto_end(int to_rewrite)
 	if (to_rewrite)
 		return window_event_result::handled;
 
-	PHYSFS_seek(infile, loc);
+	nd_seek(loc);
 	}
-	PHYSFSX_fseek(infile, -frame_length, SEEK_CUR);
+	nd_seek(-frame_length, SEEK_CUR);
 	nd_read_int(&nd_playback_v_framecount);            // get the frame count
 	nd_playback_v_framecount--;
-	PHYSFSX_fseek(infile, 4, SEEK_CUR);
+	nd_seek(4, SEEK_CUR);
 	Newdemo_vcr_state = ND_STATE_PLAYBACK;
 	newdemo_read_frame_information(0); // then the frame information
 	Newdemo_vcr_state = ND_STATE_PAUSED;
@@ -3531,9 +3537,9 @@ static window_event_result newdemo_back_frames(int frames)
 	short last_frame_length;
 	for (int i = 0; i < frames; i++)
 	{
-		PHYSFS_seek(infile, PHYSFS_tell(infile) - 10);
+		nd_seek(-10, SEEK_CUR);
 		nd_read_short(&last_frame_length);
-		PHYSFS_seek(infile, PHYSFS_tell(infile) + 8 - last_frame_length);
+		nd_seek(8 - last_frame_length, SEEK_CUR);
 
 		if (!nd_playback_v_at_eof && newdemo_read_frame_information(0) == -1) {
 			newdemo_stop_playback();
@@ -3542,9 +3548,9 @@ static window_event_result newdemo_back_frames(int frames)
 		if (nd_playback_v_at_eof)
 			nd_playback_v_at_eof = 0;
 
-		PHYSFS_seek(infile, PHYSFS_tell(infile) - 10);
+		nd_seek(-10, SEEK_CUR);
 		nd_read_short(&last_frame_length);
-		PHYSFS_seek(infile, PHYSFS_tell(infile) + 8 - last_frame_length);
+		nd_seek(8 - last_frame_length, SEEK_CUR);
 	}
 
 	return window_event_result::handled;
@@ -3701,7 +3707,7 @@ window_event_result newdemo_playback_one_frame()
 		else
 			frames_back = 1;
 		if (nd_playback_v_at_eof) {
-			PHYSFS_seek(infile, PHYSFS_tell(infile) + (shareware ? -2 : +11));
+			nd_seek((shareware ? -2 : +11), SEEK_CUR);
 		}
 		result = newdemo_back_frames(frames_back);
 
