@@ -541,6 +541,11 @@ struct object_rw
 
 static_assert(sizeof(object_rw) == 264);
 
+// The packed representation is shared; link handling and legacy repairs differ.
+enum class object_rw_context { savegame, network };
+void object_to_object_rw(const object &obj, object_rw *obj_rw, object_rw_context context);
+void object_rw_to_object(const object_rw *obj_rw, object &obj, object_rw_context context);
+
 }
 
 namespace dcx {
