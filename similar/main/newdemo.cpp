@@ -220,8 +220,9 @@ static fix64 nd_record_v_recordframe_last_time = 0;
 static sbyte nd_record_v_no_space;
 #if DXX_BUILD_DESCENT == 2
 static int nd_record_v_juststarted = 0;
-static std::array<sbyte, MAX_OBJECTS> nd_record_v_objs,
-	nd_record_v_viewobjs;
+static std::array<sbyte, MAX_OBJECTS> nd_record_v_objs;
+// Zero means unrecorded; other values hold the rendering byte plus one.
+static std::array<uint16_t, MAX_OBJECTS> nd_record_v_viewobjs;
 static std::array<sbyte, 32> nd_record_v_rendering;
 static fix nd_record_v_player_afterburner = -1;
 #endif
@@ -1249,7 +1250,7 @@ void newdemo_record_viewer_object(const vcobjptridx_t obj)
 	pause_game_world_time p;
 	nd_write_byte(ND_EVENT_VIEWER_OBJECT);
 #if DXX_BUILD_DESCENT == 2
-	nd_record_v_viewobjs[obj] = static_cast<int8_t>(RenderingType + 1);
+	nd_record_v_viewobjs[obj] = RenderingType + 1;
 	nd_record_v_rendering[RenderingType]=1;
 	nd_write_byte(RenderingType);
 #endif
