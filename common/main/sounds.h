@@ -30,6 +30,7 @@ COPYRIGHT 1993-1999 PARALLAX SOFTWARE CORPORATION.  ALL RIGHTS RESERVED.
 #include <array>
 #include <cstdint>
 #include <type_traits>
+#include <utility>
 #include "dsx-ns.h"
 
 #ifdef DXX_BUILD_DESCENT
@@ -183,9 +184,9 @@ extern std::array<sound_effect, ::d2x::MAX_SOUNDS> Sounds, AltSounds;
 
 namespace dsx {
 
-static inline sound_effect build_sound_effect_from_untrusted(const uint8_t u)
+static inline sound_effect build_sound_effect_from_untrusted(const int32_t u)
 {
-	return u < MAX_SOUNDS ? sound_effect{u} : sound_effect::None;
+	return u >= 0 && std::cmp_less(u, MAX_SOUNDS.value) ? static_cast<sound_effect>(u) : sound_effect::None;
 }
 
 }
