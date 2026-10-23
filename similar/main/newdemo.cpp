@@ -2345,26 +2345,22 @@ static int newdemo_read_frame_information(int rewrite)
 			break;
 		}
 
-		case ND_EVENT_WALL_TOGGLE:
-		{
-			sidenum_t side;
+		case ND_EVENT_WALL_TOGGLE: {
+			int side;
 			segnum_t segnum;
 			nd_read_segnum32(segnum);
-			{
-				int iside;
-				nd_read_int(&iside);
-				side = static_cast<sidenum_t>(iside);
-			}
+			nd_read_int(&side);
 			if (nd_playback_v_bad_read) {done = -1; break; }
 			if (rewrite)
 			{
-				nd_write_int(segnum, underlying_value(side));
+				nd_write_int(segnum, side);
 				break;
 			}
-			if (Newdemo_vcr_state != ND_STATE_PAUSED)
-				wall_toggle(vmwallptr, vmsegptridx(segnum), side);
-		}
+			const auto side_num = build_sidenum_from_untrusted(side);
+			if (side_num && Newdemo_vcr_state != ND_STATE_PAUSED)
+				wall_toggle(vmwallptr, vmsegptridx(segnum), *side_num);
 			break;
+		}
 
 		case ND_EVENT_CONTROL_CENTER_DESTROYED:
 			nd_read_int(&LevelUniqueControlCenterState.Countdown_seconds_left);
