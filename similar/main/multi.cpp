@@ -6075,7 +6075,7 @@ void multi_object_to_object_rw(const object &obj, object_rw *obj_rw)
 	 */
 	*obj_rw = {};
 	DXX_POISON_DEFINED_VAR(*obj_rw, 0xfd);
-	obj_rw->signature     = INTEL_SHORT(static_cast<uint16_t>(obj.signature));
+	obj_rw->signature     = INTEL_INT(uint32_t{static_cast<uint16_t>(obj.signature)});
 	obj_rw->type          = obj.type;
 	obj_rw->id            = obj.id;
 	/* next, prev not maintained here */
@@ -6112,7 +6112,7 @@ void multi_object_to_object_rw(const object &obj, object_rw *obj_rw)
 			obj_rw->mtype.phys_info.drag        = INTEL_INT(obj.mtype.phys_info.drag);
 			obj_rw->mtype.phys_info.rotvel    = build_little_endian_vector_from_native_endian(obj.mtype.phys_info.rotvel);
 			obj_rw->mtype.phys_info.rotthrust = build_little_endian_vector_from_native_endian(obj.mtype.phys_info.rotthrust);
-			obj_rw->mtype.phys_info.turnroll    = INTEL_INT(obj.mtype.phys_info.turnroll);
+			obj_rw->mtype.phys_info.turnroll    = INTEL_SHORT(obj.mtype.phys_info.turnroll);
 			obj_rw->mtype.phys_info.flags       = INTEL_SHORT(obj.mtype.phys_info.flags);
 			break;
 			
@@ -6289,8 +6289,8 @@ void multi_object_rw_to_object(const object_rw *const obj_rw, object &obj)
 			obj.mtype.phys_info.drag        = INTEL_INT(obj_rw->mtype.phys_info.drag);
 			obj.mtype.phys_info.rotvel  = build_native_endian_vector_from_little_endian(obj_rw->mtype.phys_info.rotvel);
 			obj.mtype.phys_info.rotthrust  = build_native_endian_vector_from_little_endian(obj_rw->mtype.phys_info.rotthrust);
-			obj.mtype.phys_info.turnroll    = INTEL_INT(obj_rw->mtype.phys_info.turnroll);
-			obj.mtype.phys_info.flags       = INTEL_INT(obj_rw->mtype.phys_info.flags);
+			obj.mtype.phys_info.turnroll    = INTEL_SHORT(obj_rw->mtype.phys_info.turnroll);
+			obj.mtype.phys_info.flags       = INTEL_SHORT(obj_rw->mtype.phys_info.flags);
 			break;
 			
 		case object::movement_type::spinning:
