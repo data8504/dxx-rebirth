@@ -2667,43 +2667,26 @@ static int newdemo_read_frame_information(int rewrite)
 			break;
 		}
 
-		case ND_EVENT_MULTI_CLOAK: {
-			sbyte pnum;
-
-			nd_read_byte(&pnum);
-			if (rewrite)
-			{
-				nd_write_byte(pnum);
-				break;
-			}
-			auto &player_info = get_local_plrobj().ctype.player_info;
-			if ((Newdemo_vcr_state == ND_STATE_REWINDING) || (Newdemo_vcr_state == ND_STATE_ONEFRAMEBACKWARD)) {
-				player_info.powerup_flags &= ~player_flag::cloaked;
-				DXX_MAKE_VAR_UNDEFINED(player_info.cloak_time);
-			} else if ((Newdemo_vcr_state == ND_STATE_PLAYBACK) || (Newdemo_vcr_state == ND_STATE_FASTFORWARD) || (Newdemo_vcr_state == ND_STATE_ONEFRAMEFORWARD)) {
-				player_info.powerup_flags |= player_flag::cloaked;
-				player_info.cloak_time = GameTime64  - (CLOAK_TIME_MAX / 2);
-			}
-			break;
-		}
-
+		case ND_EVENT_MULTI_CLOAK:
 		case ND_EVENT_MULTI_DECLOAK: {
 			sbyte pnum;
-
-			nd_read_byte(&pnum);
-			if (rewrite)
-			{
-				nd_write_byte(pnum);
+			if (!event.read_for_playback(pnum))
 				break;
-			}
-
-			auto &player_info = get_local_plrobj().ctype.player_info;
-			if ((Newdemo_vcr_state == ND_STATE_REWINDING) || (Newdemo_vcr_state == ND_STATE_ONEFRAMEBACKWARD)) {
-				player_info.powerup_flags |= player_flag::cloaked;
-				player_info.cloak_time = GameTime64 - (CLOAK_TIME_MAX / 2);
-			} else if ((Newdemo_vcr_state == ND_STATE_PLAYBACK) || (Newdemo_vcr_state == ND_STATE_FASTFORWARD) || (Newdemo_vcr_state == ND_STATE_ONEFRAMEFORWARD)) {
-				player_info.powerup_flags &= ~player_flag::cloaked;
-				DXX_MAKE_VAR_UNDEFINED(player_info.cloak_time);
+			if (playing_forward() || playing_backward())
+			{
+				auto &player_info = get_local_plrobj().ctype.player_info;
+				const bool cloaked = playing_forward()
+					? c == ND_EVENT_MULTI_CLOAK : c == ND_EVENT_MULTI_DECLOAK;
+				if (cloaked)
+				{
+					player_info.powerup_flags |= player_flag::cloaked;
+					player_info.cloak_time = GameTime64 - (CLOAK_TIME_MAX / 2);
+				}
+				else
+				{
+					player_info.powerup_flags &= ~player_flag::cloaked;
+					DXX_MAKE_VAR_UNDEFINED(player_info.cloak_time);
+				}
 			}
 			break;
 		}
@@ -2711,16 +2694,12 @@ static int newdemo_read_frame_information(int rewrite)
 		case ND_EVENT_MULTI_DEATH: {
 			uint8_t pnum;
 
-			nd_read_byte(&pnum);
-			if (rewrite)
-			{
-				nd_write_byte(pnum);
+			if (!event.read_for_playback(pnum))
 				break;
-			}
-			auto &player_info = vmobjptr(vcplayerptr(static_cast<unsigned>(pnum))->objnum)->ctype.player_info;
-			if ((Newdemo_vcr_state == ND_STATE_REWINDING) || (Newdemo_vcr_state == ND_STATE_ONEFRAMEBACKWARD))
+			auto &player_info = vmobjptr(vcplayerptr(pnum)->objnum)->ctype.player_info;
+			if (playing_backward())
 				player_info.net_killed_total--;
-			else if ((Newdemo_vcr_state == ND_STATE_PLAYBACK) || (Newdemo_vcr_state == ND_STATE_FASTFORWARD) || (Newdemo_vcr_state == ND_STATE_ONEFRAMEFORWARD))
+			else if (playing_forward())
 				player_info.net_killed_total++;
 			break;
 		}
@@ -2728,20 +2707,14 @@ static int newdemo_read_frame_information(int rewrite)
 		case ND_EVENT_MULTI_KILL: {
 			uint8_t pnum, kill;
 
-			nd_read_byte(&pnum);
-			nd_read_byte(&kill);
-			if (rewrite)
-			{
-				nd_write_byte(pnum);
-				nd_write_byte(kill);
+			if (!event.read_for_playback(pnum, kill))
 				break;
-			}
-			auto &player_info = vmobjptr(vcplayerptr(static_cast<unsigned>(pnum))->objnum)->ctype.player_info;
-			if ((Newdemo_vcr_state == ND_STATE_REWINDING) || (Newdemo_vcr_state == ND_STATE_ONEFRAMEBACKWARD)) {
+			auto &player_info = vmobjptr(vcplayerptr(pnum)->objnum)->ctype.player_info;
+			if (playing_backward()) {
 				player_info.net_kills_total -= kill;
 				if (+(Newdemo_game_mode & GM_TEAM))
 					team_kills[multi_get_team_from_player(Netgame, pnum)] -= kill;
-			} else if ((Newdemo_vcr_state == ND_STATE_PLAYBACK) || (Newdemo_vcr_state == ND_STATE_FASTFORWARD) || (Newdemo_vcr_state == ND_STATE_ONEFRAMEFORWARD)) {
+			} else if (playing_forward()) {
 				player_info.net_kills_total += kill;
 				if (+(Newdemo_game_mode & GM_TEAM))
 					team_kills[multi_get_team_from_player(Netgame, pnum)] += kill;
@@ -2754,7 +2727,7 @@ static int newdemo_read_frame_information(int rewrite)
 
 		case ND_EVENT_MULTI_CONNECT: {
 			uint8_t pnum, new_player;
-			int killed_total, kills_total;
+			int killed_total{}, kills_total{};
 			callsign_t new_callsign, old_callsign;
 
 			nd_read_byte(&pnum);
@@ -2767,28 +2740,26 @@ static int newdemo_read_frame_information(int rewrite)
 			nd_read_string(new_callsign.buffer());
 			if (rewrite)
 			{
-				nd_write_byte(pnum);
-				nd_write_byte(new_player);
+				nd_write_byte(pnum, new_player);
 				if (!new_player) {
 					nd_write_string(old_callsign);
-					nd_write_int(killed_total);
-					nd_write_int(kills_total);
+					nd_write_int(killed_total, kills_total);
 				}
-				nd_write_string(static_cast<const char *>(new_callsign));
+				nd_write_string(new_callsign);
 				break;
 			}
-			auto &plr = *vmplayerptr(static_cast<unsigned>(pnum));
+			auto &plr = *vmplayerptr(pnum);
 			auto &player_info = vmobjptr(plr.objnum)->ctype.player_info;
-			if ((Newdemo_vcr_state == ND_STATE_REWINDING) || (Newdemo_vcr_state == ND_STATE_ONEFRAMEBACKWARD)) {
+			if (playing_backward()) {
 				plr.connected = player_connection_status::disconnected;
 				if (!new_player) {
 					plr.callsign = old_callsign;
-					player_info.net_killed_total = killed_total;
-					player_info.net_kills_total = kills_total;
+					player_info.net_killed_total = static_cast<int16_t>(killed_total);
+					player_info.net_kills_total = static_cast<int16_t>(kills_total);
 				} else {
 					N_players--;
 				}
-			} else if ((Newdemo_vcr_state == ND_STATE_PLAYBACK) || (Newdemo_vcr_state == ND_STATE_FASTFORWARD) || (Newdemo_vcr_state == ND_STATE_ONEFRAMEFORWARD)) {
+			} else if (playing_forward()) {
 				plr.connected = player_connection_status::playing;
 				player_info.net_kills_total = 0;
 				player_info.net_killed_total = 0;
@@ -2802,38 +2773,30 @@ static int newdemo_read_frame_information(int rewrite)
 		case ND_EVENT_MULTI_RECONNECT: {
 			uint8_t pnum;
 
-			nd_read_byte(&pnum);
-			if (rewrite)
-			{
-				nd_write_byte(pnum);
+			if (!event.read_for_playback(pnum))
 				break;
-			}
-			if ((Newdemo_vcr_state == ND_STATE_REWINDING) || (Newdemo_vcr_state == ND_STATE_ONEFRAMEBACKWARD))
-				vmplayerptr(static_cast<unsigned>(pnum))->connected = player_connection_status::disconnected;
-			else if ((Newdemo_vcr_state == ND_STATE_PLAYBACK) || (Newdemo_vcr_state == ND_STATE_FASTFORWARD) || (Newdemo_vcr_state == ND_STATE_ONEFRAMEFORWARD))
-				vmplayerptr(static_cast<unsigned>(pnum))->connected = player_connection_status::playing;
+			if (playing_backward())
+				vmplayerptr(pnum)->connected = player_connection_status::disconnected;
+			else if (playing_forward())
+				vmplayerptr(pnum)->connected = player_connection_status::playing;
 			break;
 		}
 
 		case ND_EVENT_MULTI_DISCONNECT: {
 			uint8_t pnum;
 
-			nd_read_byte(&pnum);
-			if (rewrite)
-			{
-				nd_write_byte(pnum);
+			if (!event.read_for_playback(pnum))
 				break;
-			}
 #if DXX_BUILD_DESCENT == 1
-			if ((Newdemo_vcr_state == ND_STATE_REWINDING) || (Newdemo_vcr_state == ND_STATE_ONEFRAMEBACKWARD))
-				vmplayerptr(static_cast<unsigned>(pnum))->connected = player_connection_status::disconnected;
-			else if ((Newdemo_vcr_state == ND_STATE_PLAYBACK) || (Newdemo_vcr_state == ND_STATE_FASTFORWARD) || (Newdemo_vcr_state == ND_STATE_ONEFRAMEFORWARD))
-				vmplayerptr(static_cast<unsigned>(pnum))->connected = player_connection_status::playing;
+			if (playing_backward())
+				vmplayerptr(pnum)->connected = player_connection_status::disconnected;
+			else if (playing_forward())
+				vmplayerptr(pnum)->connected = player_connection_status::playing;
 #elif DXX_BUILD_DESCENT == 2
-			if ((Newdemo_vcr_state == ND_STATE_REWINDING) || (Newdemo_vcr_state == ND_STATE_ONEFRAMEBACKWARD))
-				vmplayerptr(static_cast<unsigned>(pnum))->connected = player_connection_status::playing;
-			else if ((Newdemo_vcr_state == ND_STATE_PLAYBACK) || (Newdemo_vcr_state == ND_STATE_FASTFORWARD) || (Newdemo_vcr_state == ND_STATE_ONEFRAMEFORWARD))
-				vmplayerptr(static_cast<unsigned>(pnum))->connected = player_connection_status::disconnected;
+			if (playing_backward())
+				vmplayerptr(pnum)->connected = player_connection_status::playing;
+			else if (playing_forward())
+				vmplayerptr(pnum)->connected = player_connection_status::disconnected;
 #endif
 			break;
 		}
@@ -2842,18 +2805,12 @@ static int newdemo_read_frame_information(int rewrite)
 			int score;
 			sbyte pnum;
 
-			nd_read_byte(&pnum);
-			nd_read_int(&score);
-			if (rewrite)
-			{
-				nd_write_byte(pnum);
-				nd_write_int(score);
+			if (!event.read_for_playback(pnum, score))
 				break;
-			}
 			auto &player_info = get_local_plrobj().ctype.player_info;
-			if ((Newdemo_vcr_state == ND_STATE_REWINDING) || (Newdemo_vcr_state == ND_STATE_ONEFRAMEBACKWARD))
+			if (playing_backward())
 				player_info.mission.score -= score;
-			else if ((Newdemo_vcr_state == ND_STATE_PLAYBACK) || (Newdemo_vcr_state == ND_STATE_FASTFORWARD) || (Newdemo_vcr_state == ND_STATE_ONEFRAMEFORWARD))
+			else if (playing_forward())
 				player_info.mission.score += score;
 			Game_mode = Newdemo_game_mode;
 			multi_sort_kill_list();
@@ -2955,14 +2912,13 @@ static int newdemo_read_frame_information(int rewrite)
 
 #if DXX_BUILD_DESCENT == 2
 		case ND_EVENT_CLOAKING_WALL: {
-			uint8_t type, state, cloak_value;
-			wallnum_t back_wall_num, front_wall_num;
+			uint8_t type, state;
+			int8_t cloak_value;
+			uint8_t front_wall_num, back_wall_num;
 			short l0,l1,l2,l3;
 
-			nd_read_byte(&type);
-			front_wall_num = wallnum_t{type};
-			nd_read_byte(&type);
-			back_wall_num = wallnum_t{type};
+			nd_read_byte(&front_wall_num);
+			nd_read_byte(&back_wall_num);
 			nd_read_byte(&type);
 			nd_read_byte(&state);
 			nd_read_byte(&cloak_value);
@@ -2972,39 +2928,23 @@ static int newdemo_read_frame_information(int rewrite)
 			nd_read_short(&l3);
 			if (rewrite)
 			{
-				nd_write_byte(static_cast<uint8_t>(front_wall_num));
-				nd_write_byte(static_cast<uint8_t>(back_wall_num));
-				nd_write_byte(type);
-				nd_write_byte(state);
-				nd_write_byte(cloak_value);
-				nd_write_short(l0);
-				nd_write_short(l1);
-				nd_write_short(l2);
-				nd_write_short(l3);
+				nd_write_byte(front_wall_num, back_wall_num, type, state,
+					cloak_value);
+				nd_write_short(l0, l1, l2, l3);
 				break;
 			}
 
+			for (const auto wall_index : {front_wall_num, back_wall_num})
 			{
-				auto &w = *vmwallptr(front_wall_num);
+				auto &w = *vmwallptr(wallnum_t{wall_index});
 				w.type = type;
 				w.state = wall_state{state};
 				w.cloak_value = cloak_value;
 				auto &uvl = vmsegptr(w.segnum)->unique_segment::sides[w.sidenum].uvls;
-				uvl[side_relative_vertnum::_0].l = (static_cast<int>(l0)) << 8;
-				uvl[side_relative_vertnum::_1].l = (static_cast<int>(l1)) << 8;
-				uvl[side_relative_vertnum::_2].l = (static_cast<int>(l2)) << 8;
-				uvl[side_relative_vertnum::_3].l = (static_cast<int>(l3)) << 8;
-			}
-			{
-				auto &w = *vmwallptr(back_wall_num);
-				w.type = type;
-				w.state = wall_state{state};
-				w.cloak_value = cloak_value;
-				auto &uvl = vmsegptr(w.segnum)->unique_segment::sides[w.sidenum].uvls;
-				uvl[side_relative_vertnum::_0].l = (static_cast<int>(l0)) << 8;
-				uvl[side_relative_vertnum::_1].l = (static_cast<int>(l1)) << 8;
-				uvl[side_relative_vertnum::_2].l = (static_cast<int>(l2)) << 8;
-				uvl[side_relative_vertnum::_3].l = (static_cast<int>(l3)) << 8;
+				uvl[side_relative_vertnum::_0].l = l0 << 8;
+				uvl[side_relative_vertnum::_1].l = l1 << 8;
+				uvl[side_relative_vertnum::_2].l = l2 << 8;
+				uvl[side_relative_vertnum::_3].l = l3 << 8;
 			}
 			break;
 		}
