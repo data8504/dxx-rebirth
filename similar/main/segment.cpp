@@ -42,20 +42,11 @@ static imsegidx_t build_segnum_from_untrusted_value(auto value)
 
 }
 
-std::optional<sidenum_t> build_sidenum_from_untrusted(const uint8_t untrusted)
+std::optional<sidenum_t> build_sidenum_from_untrusted(const int32_t untrusted)
 {
-	switch (untrusted)
-	{
-		case static_cast<uint8_t>(sidenum_t::WLEFT):
-		case static_cast<uint8_t>(sidenum_t::WTOP):
-		case static_cast<uint8_t>(sidenum_t::WRIGHT):
-		case static_cast<uint8_t>(sidenum_t::WBOTTOM):
-		case static_cast<uint8_t>(sidenum_t::WBACK):
-		case static_cast<uint8_t>(sidenum_t::WFRONT):
-			return sidenum_t{untrusted};
-		default:
-			return std::nullopt;
-	}
+	if (untrusted < 0 || untrusted >= underlying_value(MAX_SIDES_PER_SEGMENT.value))
+		return std::nullopt;
+	return static_cast<sidenum_t>(untrusted);
 }
 
 void native_endian::segment_side_wall_tmap_write(PHYSFS_File *fp, const shared_side &sside, const unique_side &uside)
