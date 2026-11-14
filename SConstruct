@@ -417,6 +417,7 @@ class ConfigureTests:
 			if path is _cache:
 				_cache[pkgconfig] = path = _get_pkg_config_exec_path(context, message, pkgconfig)
 			return path
+		get_command = staticmethod(__get_pkg_config_path)
 		@staticmethod
 		def merge(context, message: str, user_settings, pkgconfig_name: str, display_name: str, guess_flags: dict,
 				__get_pkg_config_path=__get_pkg_config_path,
@@ -1781,6 +1782,8 @@ static void terminate_handler()
 	def _check_libSDL(self,context,sdl2,guess_flags):
 		user_settings = self.user_settings
 		successflags = self.pkgconfig.merge(context, self.msgprefix, user_settings, f'sdl{sdl2}', f'SDL{sdl2}', guess_flags).copy()
+		if sdl2 == '2':
+			context.env['DXX_SDL2_PKG_CONFIG'] = self.pkgconfig.get_command(context, self.msgprefix, user_settings, 'SDL2')
 		if user_settings.max_joysticks:
 			# If joysticks are enabled, but all possible inputs are
 			# disabled, then disable joystick support.
@@ -4084,6 +4087,7 @@ class DXXCommon(LazyObjectConstructor):
 					# Keychain you wish to use to sign the bundle and
 					# libraries (as applicable).
 					('macos_code_signing_identity', None, 'sign app bundle and embedded libs (if applicable) with this identity'),
+					('macos_sdl3_library', None, 'explicit SDL3 dylib to bundle for sdl2-compat; otherwise use selected pkg-config metadata'),
 					# This is only examined for Mac OS X targets.
 					#
 					# This option specifies a Keychain item to use
@@ -5840,6 +5844,28 @@ Failed command list:
 				if user_environment_path:
 					dylibenv = dylibenv.copy()
 					dylibenv['PATH'] = user_environment_path
+				sys.path.insert(0, cocoa)
+				import sdl2_compat
+				sys.path.pop(0)
+				runtime, metadata, expected_sdl2 = sdl2_compat.discover(env.get('DXX_SDL2_PKG_CONFIG'), self.user_settings.macos_sdl3_library)
+				if runtime is not None:
+					libs = bundledir.Dir('Contents/libs')
+					raw = exe_node[0] if SCons.Util.is_List(exe_node) else exe_node
+					def verify_sdl2(target, source, env, expected=expected_sdl2):
+						sdl2_compat.verify_selected(str(source[0]), expected)
+						return 0
+					nodes = env.Command(target=libs.File('libSDL3.dylib'),
+							source=[raw, str(runtime), *map(str, metadata), sdl2_compat.__file__],
+							action=[SCons.Defaults.Copy(str(appfile[0]), str(raw)), verify_sdl2,
+								['dylibbundler', '-od', '-b', '-x', str(appfile[0]), '-d', str(libs)],
+								SCons.Defaults.Copy('$TARGET', '${SOURCES[1]}'),
+								['dylibbundler', '-of', '-b', '-x', '$TARGET', '-d', str(libs)]],
+							ENV=dylibenv)
+					# Install recovery must also restore the relocated executable.
+					env.AddPostAction(appfile, SCons.Defaults.Delete(str(libs.File('libSDL3.dylib'))))
+					env.Requires(nodes, appfile)
+					env.Depends(bundledir, nodes)
+					return bundledir
 				env.Command(target=bundledir.Dir('Contents/libs'),
 						source=appfile,
 						action="dylibbundler -od -b -x $SOURCE -d $TARGET",
