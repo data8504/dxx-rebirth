@@ -4025,6 +4025,7 @@ class DXXCommon(LazyObjectConstructor):
 					# generated app bundle and updates the executable
 					# to reference them within the bundle.
 					('macos_bundle_libs', False, 'bundle required libs into app bundle using dylibbundler'),
+					('macos_homebrew_runtime_deps', False, 'experimental installed Homebrew runtime closure for bundled dylibs'),
 					# This is only examined for Windows targets, so
 					# there is no need to make the default value depend
 					# on the host_platform.
@@ -5833,6 +5834,12 @@ Failed command list:
 					resources=[[os.path.join(self.srcdir, s), s] for s in ['English.lproj/InfoPlist.strings']])
 			if self.user_settings.macos_bundle_libs and not self.user_settings.macos_add_frameworks:
 				message(self, f'Bundling libraries for {bundledir!s}')
+				if self.user_settings.macos_homebrew_runtime_deps:
+					sys.path.insert(0, cocoa)
+					import homebrew_bundle
+					sys.path.pop(0)
+					homebrew_bundle.register(env, bundledir, exe_node, appfile)
+					return bundledir
 				# If the user has set $PATH, use it in preference to the
 				# built-in SCons path.
 				dylibenv = env['ENV']
