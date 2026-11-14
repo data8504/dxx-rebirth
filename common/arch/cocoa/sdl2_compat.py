@@ -36,6 +36,7 @@ def discover(command, override=None):
 def verify_selected(executable, expected):
     if expected is None:
         return
+    expected = Path(expected)
     lines = subprocess.check_output(['otool', '-L', str(executable)], text=True)
     paths = [line.strip().split(' (compatibility version', 1)[0]
              for line in lines.splitlines()[1:]]

@@ -20,8 +20,8 @@ jobs:
         run: brew bundle --verbose
       - name: Discovery regression tests
         run: python3 -m unittest discover -s contrib/homebrew-packaging -p 'test_*.py'
-      - name: Build both applications once without bundling
-        run: scons -j4 opengl=1 sdl2=1 macos_add_frameworks=0 macos_bundle_libs=0 build/D{1,2}X-Rebirth.app
+      - name: Build both applications with automatic runtime packaging
+        run: scons -j4 opengl=1 sdl2=1 macos_add_frameworks=0 macos_bundle_libs=1 build/D{1,2}X-Rebirth.app
       - name: Compare original, generic, and targeted packaging
         run: python3 contrib/homebrew-packaging/evaluate.py > packaging-comparison.log 2>&1
       - name: Exercise SCons integration and incremental packaging

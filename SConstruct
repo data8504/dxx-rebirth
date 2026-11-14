@@ -5852,8 +5852,8 @@ Failed command list:
 				if runtime is not None:
 					libs = bundledir.Dir('Contents/libs')
 					raw = exe_node[0] if SCons.Util.is_List(exe_node) else exe_node
-					def verify_sdl2(target, source, env, expected=expected_sdl2):
-						sdl2_compat.verify_selected(str(source[0]), expected)
+					def verify_sdl2(target, source, env, expected=str(expected_sdl2) if expected_sdl2 else None, verify=sdl2_compat.verify_selected):
+						verify(str(source[0]), expected)
 						return 0
 					nodes = env.Command(target=libs.File('libSDL3.dylib'),
 							source=[raw, str(runtime), *map(str, metadata), sdl2_compat.__file__],

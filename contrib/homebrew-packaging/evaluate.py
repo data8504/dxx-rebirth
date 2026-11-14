@@ -88,6 +88,10 @@ for game in ('d1x', 'd2x'):
         app.parent.mkdir(exist_ok=True)
         shutil.copytree(template, app, symlinks=True)
         exe = app / 'Contents/MacOS' / raw.name
+        # Every comparison starts from the same pristine executable/resources,
+        # even when the initial build already produced the repaired app.
+        shutil.rmtree(app / 'Contents/libs', ignore_errors=True)
+        shutil.copy2(raw, exe)
         started = time.monotonic()
         discovery = None
         explicit_sources = {}

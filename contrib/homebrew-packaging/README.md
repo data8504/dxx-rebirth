@@ -33,7 +33,7 @@ bundling rewrites it.
 ```
 brew bundle --verbose
 python3 -m unittest discover -s contrib/homebrew-packaging -p 'test_*.py'
-scons -j4 opengl=1 sdl2=1 macos_add_frameworks=0 macos_bundle_libs=0 build/D{1,2}X-Rebirth.app
+scons -j4 opengl=1 sdl2=1 macos_add_frameworks=0 macos_bundle_libs=1 build/D{1,2}X-Rebirth.app
 python3 contrib/homebrew-packaging/evaluate.py
 python3 contrib/homebrew-packaging/incremental.py
 ```
