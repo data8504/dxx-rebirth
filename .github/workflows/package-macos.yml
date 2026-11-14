@@ -1,139 +1,40 @@
-name: Package - MacOS
+name: Homebrew packaging experiment
 on:
   workflow_dispatch:
-    inputs:
-      publish_artifacts:
-        description: Package and upload build artifacts
-        required: true
-        type: boolean
-        default: true
-  workflow_call:
-    inputs:
-      publish_artifacts:
-        description: Package and upload build artifacts
-        required: false
-        type: boolean
-        default: true
 
-concurrency:
-  group: macos-${{ github.workflow_ref }}-${{ github.ref }}
-  cancel-in-progress: true
+permissions:
+  contents: read
+
 jobs:
-  package:
-    name: OS 26
+  evaluate:
     runs-on: macos-26
+    timeout-minutes: 40
     env:
-        MACOSX_DEPLOYMENT_TARGET: 14
+      MACOSX_DEPLOYMENT_TARGET: 14
+      HOMEBREW_NO_AUTO_UPDATE: 1
     steps:
-      - name: Clone Repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
           persist-credentials: false
-          path: src
-
-      - name: Collect architecture
-        id: architecture
-        run: |
-          printf 'uname_m=%s\n' "$(uname -m)" >> "$GITHUB_OUTPUT"
-
-      - name: Install Dependencies
-        working-directory: src
+      - name: Install the project's dependencies
         run: brew bundle --verbose
-
-      - name: Update gamecontrollerdb.txt
-        if: ${{ inputs.publish_artifacts }}
-        working-directory: src
-        run: >-
-          curl --fail --silent --show-error --location
-          --output contrib/gamecontrollerdb.txt
-          https://raw.githubusercontent.com/gabomdq/SDL_GameControllerDB/master/gamecontrollerdb.txt
-          || true
-
-      - name: Configure and Build
-        if: ${{ !inputs.publish_artifacts }}
-        working-directory: src
-        run: >
-          set -eu
-
-          # I do not know why, but readline is not found by pkg-config
-
-          # For a idea of a fix see: https://superuser.com/a/1277306
-
-          export PKG_CONFIG_PATH=/usr/local/opt/readline/lib/pkgconfig
-
-          # run build
-
-          scons
-          -j4
-          -k
-          opengl=1
-          sdl2=1
-          macos_add_frameworks=0
-          macos_bundle_libs=0
-          register_install_target=0
-          build/d1x-rebirth/d1x-rebirth
-          build/d2x-rebirth/d2x-rebirth
-
-      - name: Configure, Build, and Stage Application Bundles
-        if: ${{ inputs.publish_artifacts }}
-        working-directory: src
-        run: >
-          set -eu
-
-          # I do not know why, but readline is not found by pkg-config
-
-          # For a idea of a fix see: https://superuser.com/a/1277306
-
-          export PKG_CONFIG_PATH=/usr/local/opt/readline/lib/pkgconfig
-
-          # run build
-
-          scons
-          -j4
-          -k
-          opengl=1
-          sdl2=1
-          macos_add_frameworks=0
-          macos_bundle_libs=1
-          build/D{1,2}X-Rebirth.app
-
-          # Copy gamecontrollerdb.txt into app bundles
-
-          for app in build/D{1,2}X-Rebirth.app; do
-            if [ -d "$app" ] && [ -f "contrib/gamecontrollerdb.txt" ]; then
-              cp "contrib/gamecontrollerdb.txt" "$app/Contents/Resources/"
-            fi
-          done
-
-          mv build/D{1,2}X-Rebirth.app ..
-
-      - name: Upload SConf log
-        if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - name: Discovery regression tests
+        run: python3 contrib/homebrew-packaging/test_discovery.py
+      - name: Build both applications once without bundling
+        run: scons -j4 opengl=1 sdl2=1 macos_add_frameworks=0 macos_bundle_libs=0 build/D{1,2}X-Rebirth.app
+      - name: Compare original, generic, and targeted packaging
+        run: python3 contrib/homebrew-packaging/evaluate.py > packaging-comparison.log 2>&1
+      - name: Exercise SCons integration and incremental packaging
+        run: python3 contrib/homebrew-packaging/incremental.py > packaging-incremental.log 2>&1
+      - name: Retain evidence only
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: "SConf-MacOS${{ env.MACOSX_DEPLOYMENT_TARGET }}-${{ steps.architecture.outputs.uname_m }}"
-          path: 'src/build/config.log'
-
-      - name: Upload Artifact
-        if: ${{ inputs.publish_artifacts }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: "DXX-Rebirth-MacOS${{ env.MACOSX_DEPLOYMENT_TARGET }}-${{ steps.architecture.outputs.uname_m }}"
-          path: 'D*X-Rebirth.app'
-
-      - name: Check header includes
-        working-directory: src
-        run: >
-          set -eu
-
-          export PKG_CONFIG_PATH=/usr/local/opt/readline/lib/pkgconfig
-
-          scons
-          -j4
-          -k
-          opengl=1
-          sdl2=1
-          macos_add_frameworks=0
-          macos_bundle_libs=1
-          check_header_includes=1
-          build/{common,d1x-rebirth,d2x-rebirth}/check_header_includes
+          name: homebrew-packaging-evidence-${{ github.run_id }}
+          path: |
+            packaging-evidence/*.json
+            packaging-evidence/*.txt
+            packaging-evidence/*.log
+            packaging-evidence/*/*.json
+            packaging-*.log
+            build/config.log
