@@ -5613,6 +5613,7 @@ class DXXProgram(DXXCommon):
 		super().prepare_environment()
 		env = self.env
 		env.MergeFlags(archive.configure_added_environment_flags)
+		env['DXX_SDL2_PKG_CONFIG'] = archive.env.get('DXX_SDL2_PKG_CONFIG')
 		archive_penv = archive.env['ENV']
 		SOURCE_DATE_EPOCH = archive_penv.get('SOURCE_DATE_EPOCH')
 		if SOURCE_DATE_EPOCH is not None:

@@ -12,8 +12,9 @@ libs = [Path(f'build/D{n}X-Rebirth.app/Contents/libs/libSDL3.dylib') for n in (1
 
 def build():
     start = time.monotonic()
-    result = subprocess.run(args, check=True, capture_output=True, text=True)
+    result = subprocess.run(args, capture_output=True, text=True)
     print(result.stdout, result.stderr)
+    result.check_returncode()
     return dict(seconds=time.monotonic()-start,
                 repackaged=result.stdout.count('dylibbundler -od'))
 
@@ -40,8 +41,8 @@ args.insert(-2, 'macos_sdl3_library=' + str(source))
 result['override'] = build()
 result['override_noop'] = build()
 assert result['override_noop']['repackaged'] == 0
-with source.open('ab') as stream:
-    stream.write(b'\0' * 16)
+subprocess.run(['install_name_tool', '-id', '@rpath/override-SDL3.dylib', str(source)], check=True)
+subprocess.run(['codesign', '--force', '--sign', '-', str(source)], check=True)
 result['changed_override'] = build()
 assert result['changed_override']['repackaged'] == 2
 args.remove('macos_sdl3_library=' + str(source))
