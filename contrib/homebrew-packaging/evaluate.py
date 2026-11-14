@@ -106,6 +106,17 @@ for game in ('d1x', 'd2x'):
                                              if owner(p)})
         (OUT / f'{game}-{mode}-discovery.json').write_text(json.dumps(discovery, indent=2))
         elapsed = time.monotonic() - started
+        if mode == 'generic':
+            # Evaluation inventory only: package edges do not identify which
+            # of these other runtime-looking payloads are deployable or needed.
+            omitted = {}
+            selected = {Path(p).resolve() for p in discovery['sources'].values()}
+            for package_name, version in discovery['packages']:
+                keg = cellar / package_name / version
+                omitted[package_name] = [str(p.relative_to(keg)) for p in keg.rglob('*')
+                    if p.is_file() and p.resolve() not in selected
+                    and p.relative_to(keg).parts[0] in ('bin', 'lib', 'libexec', 'share')]
+            (OUT / f'{game}-omitted-package-payload.json').write_text(json.dumps(omitted, indent=2))
         sign(app)
         result = measure(app)
         result['packaging_seconds'] = elapsed
