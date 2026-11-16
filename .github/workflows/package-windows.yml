@@ -47,6 +47,7 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+          ref: 69d6b4c9577e4e55bfbd183b70c7bcb513258450
           path: src
 
       - name: Collect architecture
@@ -84,7 +85,7 @@ jobs:
         run: ./contrib/packaging/windows/build_package.sh -o .. -z ''
 
       - name: Upload Artifact
-        if: ${{ inputs.publish_artifacts }}
+        if: ${{ false }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: "DXX-Rebirth-Windows-${{ steps.architecture.outputs.uname_m }}"
@@ -99,3 +100,21 @@ jobs:
           RC=windres
           check_header_includes=1
           build/{common,d1x-rebirth,d2x-rebirth}/check_header_includes
+
+      - name: Check out validation harness
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          path: harness
+          sparse-checkout: .validation
+      - name: Validate packaged startup
+        run: python harness/.validation/windows.py
+      - name: Retain validation evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: SDL3-windows-validation-${{ github.run_id }}
+          path: |
+            windows-validation.json
+            windows-*-startup.log
