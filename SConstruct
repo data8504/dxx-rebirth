@@ -4235,10 +4235,14 @@ class DXXCommon(LazyObjectConstructor):
 			env.Append(
 				CPPDEFINES = ['__unix__'],
 				FRAMEWORKS = ['ApplicationServices', 'Cocoa'],
-				LINKFLAGS = ['-Wl,-rpath,@loader_path/../Frameworks'],	# Allow libraries & frameworks to go in app bundle
 			)
 			if macos_add_frameworks:
-				env.Append(FRAMEWORKS = ['SDL3'])
+				# Library builds use pkg-config runpaths; adding another
+				# makes dylibbundler emit duplicate app-local runpaths.
+				env.Append(
+					FRAMEWORKS = ['SDL3'],
+					LINKFLAGS = ['-Wl,-rpath,@loader_path/../Frameworks'],
+				)
 			if self.user_settings.opengl or self.user_settings.opengles:
 				env.Append(
 					CPPDEFINES = [('GL_SILENCE_DEPRECATION',)],
