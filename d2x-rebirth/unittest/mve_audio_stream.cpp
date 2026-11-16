@@ -114,7 +114,7 @@ BOOST_AUTO_TEST_CASE(unsigned_eight_bit_silence_stays_silent)
 
 BOOST_AUTO_TEST_CASE(dummy_device_callback_and_explicit_stream_lock)
 {
-	BOOST_REQUIRE(SDL_SetHint(SDL_HINT_AUDIO_DRIVER, "dummy"));
+	BOOST_REQUIRE(SDL_SetHintWithPriority(SDL_HINT_AUDIO_DRIVER, "dummy", SDL_HINT_OVERRIDE));
 	BOOST_REQUIRE(SDL_InitSubSystem(SDL_INIT_AUDIO));
 	const SDL_AudioSpec spec{SDL_AUDIO_U8, 2, 11025};
 	std::atomic<unsigned> callbacks{};

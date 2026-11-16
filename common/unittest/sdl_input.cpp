@@ -41,7 +41,7 @@ struct input_fixture
 {
 	input_fixture()
 	{
-		SDL_SetHint(SDL_HINT_VIDEO_DRIVER, "dummy");
+		SDL_SetHintWithPriority(SDL_HINT_VIDEO_DRIVER, "dummy", SDL_HINT_OVERRIDE);
 		if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD))
 			throw std::runtime_error(SDL_GetError());
 		if (!PHYSFS_init(boost::unit_test::framework::master_test_suite().argv[0]))

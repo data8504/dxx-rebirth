@@ -23,7 +23,7 @@ struct dummy_video
 {
 	dummy_video()
 	{
-		SDL_SetHint(SDL_HINT_VIDEO_DRIVER, "dummy");
+		SDL_SetHintWithPriority(SDL_HINT_VIDEO_DRIVER, "dummy", SDL_HINT_OVERRIDE);
 		if (!SDL_Init(SDL_INIT_VIDEO))
 			throw std::runtime_error(SDL_GetError());
 	}
