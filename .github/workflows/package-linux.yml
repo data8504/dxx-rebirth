@@ -27,7 +27,7 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-          ref: 69d6b4c9577e4e55bfbd183b70c7bcb513258450
+          ref: 3b4997a417a4f2781cd5b90e0f122aa29576eb64
 
       - name: Install Dependencies
         run: >
