@@ -34,10 +34,6 @@ jobs:
           persist-credentials: false
       - name: Test packaging and publication recovery
         run: python3 -m unittest discover -s contrib/shareware -v
-      - name: Verify sources and build both distributions
-        env:
-          OUTPUT: ${{ runner.temp }}/shareware-validation
-        run: python3 contrib/shareware/shareware.py build --output "$OUTPUT"
 
   refresh:
     if: >-

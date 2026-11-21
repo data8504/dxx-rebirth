@@ -38,8 +38,8 @@ python3 contrib/shareware/shareware.py refresh --output /tmp/shareware \
 ```
 
 `--game d1` or `--game d2` selects one distribution. The default checks both.
-Ordinary pushes and PRs validate and build both distributions without publishing
-or retaining binary Actions artifacts. The manual workflow defaults to preview.
+Ordinary pushes and PRs run offline regression tests. Source verification and
+packaging run on refresh; the manual workflow defaults to preview.
 
 ## Enable publication
 
