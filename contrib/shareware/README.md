@@ -95,6 +95,10 @@ and verified before publication, and checked again afterwards. Existing releases
 can point at an earlier commit if their tagged commit and exact assets agree.
 Release notes are descriptive; the uploaded manifest is the immutable metadata.
 Data releases explicitly opt out of the repository's Latest designation.
+GitHub can nevertheless select a data release as Latest when the repository
+has no stable engine release explicitly designated Latest. Before upstream
+publication, publish and explicitly designate the intended stable engine
+release as Latest; `make_latest: false` alone does not suppress that fallback.
 
 Conflicting bytes, unexpected assets, a full-hash collision under a short tag,
 or a moved release tag fail rather than overwrite anything. An interrupted tag
