@@ -1,0 +1,79 @@
+name: Shareware data
+on:
+  push:
+    branches: ['**']
+    tags: [refresh-shareware-data]
+    paths:
+      - '.github/workflows/shareware-data.yml'
+      - 'contrib/shareware/**'
+  pull_request:
+    paths:
+      - '.github/workflows/shareware-data.yml'
+      - 'contrib/shareware/**'
+  workflow_dispatch:
+    inputs:
+      game:
+        description: Distribution to refresh
+        type: choice
+        options: [all, d1, d2]
+        default: all
+      publish:
+        description: Publish missing immutable releases (otherwise preview only)
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Test packaging and publication recovery
+        run: python3 -m unittest discover -s contrib/shareware -v
+      - name: Verify sources and build both distributions
+        env:
+          OUTPUT: ${{ runner.temp }}/shareware-validation
+        run: python3 contrib/shareware/shareware.py build --output "$OUTPUT"
+
+  refresh:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.ref == 'refs/tags/refresh-shareware-data' && !github.event.deleted)
+    needs: validate
+    runs-on: ubuntu-24.04
+    # Serialize publication across all refs, including moved command tags.
+    concurrency:
+      group: shareware-data-publication
+      cancel-in-progress: false
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Reconcile distributions with releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          COMMIT: ${{ github.sha }}
+          OUTPUT: ${{ runner.temp }}/shareware-release
+          GAME: ${{ inputs.game || 'all' }}
+          PUBLISH: ${{ (github.event_name == 'workflow_dispatch' && inputs.publish) || (github.event_name == 'push' && github.ref == 'refs/tags/refresh-shareware-data') }}
+          IMMUTABILITY_CONFIRMED: ${{ vars.SHAREWARE_IMMUTABLE_RELEASES_ENABLED }}
+        shell: bash
+        run: |
+          arguments=()
+          if [[ "$PUBLISH" == true ]]; then
+            if [[ "$IMMUTABILITY_CONFIRMED" != true ]]; then
+              echo 'Enable immutable releases, then set SHAREWARE_IMMUTABLE_RELEASES_ENABLED=true.' >&2
+              exit 1
+            fi
+            arguments+=(--publish)
+          fi
+          python3 contrib/shareware/shareware.py refresh \
+            --repository "$REPOSITORY" --commit "$COMMIT" \
+            --output "$OUTPUT" --game "$GAME" "${arguments[@]}"

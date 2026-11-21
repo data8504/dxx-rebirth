@@ -1,0 +1,20 @@
+{
+  "d1": {
+    "title": "Descent 1 DOS shareware",
+    "version": "1.4",
+    "edition": "shareware",
+    "filename": "desc14sw.exe",
+    "size": 2892216,
+    "sha256": "3dadb7fbc01efce2904d0908c55d9a9cf1f402e83bf771970552efaca15efcb0",
+    "sources": ["https://icculus.org/d2x/data/desc14sw.exe"]
+  },
+  "d2": {
+    "title": "Descent 2 DOS demo",
+    "version": "1.0",
+    "edition": "demo",
+    "filename": "d2shar10.exe",
+    "size": 4066754,
+    "sha256": "5581e501458cdaf1edf91ed3f74121e10717f1f7b4bd73f38fcfa447822919a3",
+    "sources": ["https://icculus.org/d2x/data/d2shar10.exe"]
+  }
+}
