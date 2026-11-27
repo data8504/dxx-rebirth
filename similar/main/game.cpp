@@ -81,6 +81,7 @@ COPYRIGHT 1993-1999 PARALLAX SOFTWARE CORPORATION.  ALL RIGHTS RESERVED.
 #include "powerup.h"
 #include "fireball.h"
 #include "newmenu.h"
+#include "kmatrix.h"
 #include "gamefont.h"
 #include "endlevel.h"
 #include "kconfig.h"
@@ -1946,7 +1947,8 @@ static void do_ambient_sounds(const sound_ambient_flags s2_flags)
 
 void game_leave_menus(void)
 {
-	if (!Game_wind)
+	/* The score view and any child dialog must unwind their own handlers. */
+	if (!Game_wind || kmatrix_window_is_running())
 		return;
 	for (;;) // go through all windows and actually close them if they want to
 	{

@@ -217,10 +217,30 @@ namespace dsx {
 
 namespace {
 
+bool Kmatrix_window_running;
+
+struct kmatrix_window_running_scope
+{
+	kmatrix_window_running_scope()
+	{
+		Assert(!Kmatrix_window_running);
+		Kmatrix_window_running = true;
+	}
+	~kmatrix_window_running_scope()
+	{
+		Kmatrix_window_running = false;
+	}
+};
+
 struct kmatrix_window : ::dcx::kmatrix_window
 {
 	using ::dcx::kmatrix_window::kmatrix_window;
 	virtual window_event_result event_handler(const d_event &) override;
+	window_event_result abort_multiplayer_game()
+	{
+		result = kmatrix_result::abort;
+		return window_event_result::close;
+	}
 };
 
 static void kmatrix_redraw(grs_canvas &canvas, kmatrix_window *const km)
@@ -346,8 +366,17 @@ window_event_result kmatrix_window::event_handler(const d_event &event)
 								passive_newmenu(menu_title{nullptr}, menu_subtitle{TXT_ABORT_GAME}, menu_filename{nullptr}, tiny_mode_flag::normal, tab_processing_flag::ignore, adjusted_citem::create(*static_cast<items_type *>(this), 0), canvas)
 							{
 							}
+							window_event_result event_handler(const d_event &event) override
+							{
+								if (multi_quit_game && (event.type == event_type::idle || event.type == event_type::window_draw))
+									return window_event_result::close;
+								return passive_newmenu::event_handler(event);
+							}
 						};
-						if (run_blocking_newmenu<abort_game_menu>(*grd_curcanv) != 0)
+						const auto choice = run_blocking_newmenu<abort_game_menu>(*grd_curcanv);
+						if (multi_quit_game)
+							return abort_multiplayer_game();
+						if (choice != 0)
 							return window_event_result::handled;
 					}
 					{
@@ -356,10 +385,7 @@ window_event_result kmatrix_window::event_handler(const d_event &event)
 						if (network != kmatrix_network::offline)
 							multi::dispatch->send_endlevel_packet();
 						
-						multi_leave_game();
-						this->result = kmatrix_result::abort;
-
-						return window_event_result::close;
+						return abort_multiplayer_game();
 					}
 				default:
 					break;
@@ -368,11 +394,25 @@ window_event_result kmatrix_window::event_handler(const d_event &event)
 		case event_type::window_draw:
 			{
 			timer_delay2(50);
+			if (network != kmatrix_network::offline && multi_quit_game)
+			{
+				if (this != window_get_front())
+					return window_event_result::handled;
+				return abort_multiplayer_game();
+			}
 			gr_set_default_canvas();
 			kmatrix_redraw(*grd_curcanv, this);
 
 			if (network != kmatrix_network::offline)
+			{
 				multi::dispatch->do_protocol_frame(0, 1);
+				if (multi_quit_game)
+				{
+					if (this != window_get_front())
+						return window_event_result::handled;
+					return abort_multiplayer_game();
+				}
+			}
 			kmatrix_status_mode playing = (Current_level_num == Current_mission->last_level)
 				? kmatrix_status_mode::mission_finished
 				: kmatrix_status_mode::level_finished;
@@ -436,27 +476,33 @@ window_event_result kmatrix_window::event_handler(const d_event &event)
 	return window_event_result::ignored;
 }
 
+bool kmatrix_window_is_running()
+{
+	return Kmatrix_window_running;
+}
+
 kmatrix_result kmatrix_view(const kmatrix_network network, control_info &Controls)
 {
 	auto &Objects = LevelUniqueObjectState.Objects;
 	auto &vcobjptridx = Objects.vcptridx;
 	kmatrix_result result = kmatrix_result::proceed;
 	{
-	const auto pkm = window_create<kmatrix_window>(grd_curscreen->sc_canvas, 0, 0, SWIDTH, SHEIGHT, result);
-	auto &km = *pkm;
-	pcx_read_bitmap_or_default(STARS_BACKGROUND, km.background, gr_palette);
-	gr_palette_load(gr_palette);
+		const kmatrix_window_running_scope running_scope;
+		const auto pkm = window_create<kmatrix_window>(grd_curscreen->sc_canvas, 0, 0, SWIDTH, SHEIGHT, result);
+		auto &km = *pkm;
+		pcx_read_bitmap_or_default(STARS_BACKGROUND, km.background, gr_palette);
+		gr_palette_load(gr_palette);
 
-	km.network = network;
-	
-	set_screen_mode( SCREEN_MENU );
-	game_flush_inputs(Controls);
+		km.network = network;
 
-	range_for (auto &i, Players)
-		if (i.objnum != object_none)
-			digi_kill_sound_linked_to_object(vcobjptridx(i.objnum));
+		set_screen_mode( SCREEN_MENU );
+		game_flush_inputs(Controls);
 
-	event_process_all();
+		range_for (auto &i, Players)
+			if (i.objnum != object_none)
+				digi_kill_sound_linked_to_object(vcobjptridx(i.objnum));
+
+		event_process_all();
 	}
 	/* After event_process_all returns, kmatrix_window has been freed
 	 * and cannot be accessed.  The result is therefore stored in a

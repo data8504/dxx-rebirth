@@ -1825,6 +1825,8 @@ static window_event_result (AdvanceLevel)(
 			&secret_flag
 #endif
 			); // Wait for other players to reach this point
+		if (multi_quit_game)
+			return window_event_result::close;
 		if (result) // failed to sync
 		{
 			// check if player has finished the game
