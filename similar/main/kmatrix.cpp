@@ -447,8 +447,7 @@ window_event_result kmatrix_window::event_handler(const d_event &event)
 					if (Current_level_num==8)
 					{
 						get_local_player().connected = player_connection_status::disconnected;
-						multi_leave_game();
-						this->result = kmatrix_result::abort;
+						return abort_multiplayer_game();
 					}
 				}
 #endif
